@@ -248,7 +248,7 @@ document.querySelectorAll('.bio').forEach(function (box) {
       {% for val, lbl in flag_labels %}
       <label><input type="checkbox" name="flag" value="{{ val }}" {% if val in sel_flags %}checked{% endif %}>{{ lbl }}</label>
       {% endfor %}
-      <label><input type="checkbox" name="show18" value="1" {% if show18 %}checked{% endif %}>show 18+ <span class="muted">(hidden by default)</span></label>
+      <label><input type="checkbox" name="show18" value="1" {% if show18 %}checked{% endif %}>show 18+</label>
     </div></div>
     <div class="facet"><div class="facet-label">Commissions open <span class="muted">(all selected must hold)</span></div><div class="facet-opts">
       {% for val, lbl in comms_labels %}
@@ -658,8 +658,10 @@ FLAG_SQL = {
                 "where aa.artist_id = de.artist_id and aa.removed_at is null "
                 "and p.slug in ('twitter', 'bluesky'))"),
 }
-FLAG_LABELS = [("no_ai", "no-AI"), ("nsfw", "18+"),
-               ("dormant", "dormant"), ("no_pkey", "no X/bsky")]
+# nsfw stays in FLAG_SQL (legacy URLs still work) but is not offered as a
+# checkbox — 18+ visibility is the single "show 18+" toggle instead.
+FLAG_LABELS = [("no_ai", "no-AI"), ("dormant", "dormant"),
+               ("no_pkey", "no X/bsky")]
 
 # Commission-open facets → EXISTS predicate on a member account. AND-combined.
 # skeb/pixiv "open" mean the platform's own authoritative flag (detail prefixed
@@ -884,10 +886,15 @@ def index():
                    (select count(*) from directory_entries where nsfw) as nsfw,
                    (select count(*) from accounts) as accounts,
                    (select count(distinct artist_id) from suppressions where lifted_at is null) as suppressed""")[0])
+        # Platform facet ordered like the accounts themselves: display_rank
+        # first (twitter, bluesky, hubs, ...), most common first within a rank.
         platform_options = cached("platform_options", lambda: [r["p"] for r in q(conn, """
-            select distinct el->>'platform' as p
-            from directory_entries de, jsonb_array_elements(de.accounts) el
-            where el->>'platform' is not null order by 1""")])
+            select c.p from (
+                select el->>'platform' as p, count(*) as n
+                from directory_entries de, jsonb_array_elements(de.accounts) el
+                where el->>'platform' is not null group by 1) c
+            join platforms pl on pl.slug = c.p
+            order by pl.display_rank, c.n desc, c.p""")])
         lang_options = cached("lang_options", lambda: [r["language"] for r in q(conn,
             "select distinct language from directory_entries order by 1")])
         return render_template("index.html", artists=artists, stats=stats, q=query,

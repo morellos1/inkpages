@@ -239,7 +239,9 @@ class PlatformLink:
 _LINK_PATTERNS: list[tuple[str, re.Pattern]] = [
     ("twitter", re.compile(
         r"(?:https?://)?(?:www\.)?(?:x|twitter)\.com/@?"
-        r"(?!i/|home\b|search\b|hashtag/|intent/|share\b)"
+        r"(?!i/|home\b|search\b|hashtag/|intent/|share\b|widgets\b|messages\b"
+        r"|notifications\b|settings\b|explore\b|login\b|logout\b|signup\b"
+        r"|tos\b|privacy\b|about\b|download\b|account\b|help\b|jobs\b|compose/)"
         r"(?P<handle>[A-Za-z0-9_]{1,15})\b", re.I)),
     ("bluesky", re.compile(r"bsky\.app/profile/(?P<native_id>did:(?:plc|web):[A-Za-z0-9._%:-]+)", re.I)),
     ("bluesky", re.compile(r"bsky\.app/profile/(?!did:)(?P<handle>[A-Za-z0-9.-]+)", re.I)),
