@@ -232,10 +232,12 @@ _LINK_PATTERNS: list[tuple[str, re.Pattern]] = [
     ("cara", re.compile(r"cara\.app/(?P<handle>[A-Za-z0-9._-]+)", re.I)),
     ("xfolio", re.compile(r"xfolio\.jp/(?:en/)?portfolio/(?P<handle>[\w-]+)", re.I)),
     ("deviantart", re.compile(r"deviantart\.com/(?!tag\b|art\b)(?P<handle>[A-Za-z0-9-]+)", re.I)),
-    ("deviantart", re.compile(r"\b(?P<handle>[A-Za-z0-9-]+)\.deviantart\.com", re.I)),
-    ("tumblr", re.compile(r"\b(?P<handle>[A-Za-z0-9-]+)\.tumblr\.com", re.I)),
-    ("tumblr", re.compile(r"tumblr\.com/(?!tagged\b|search\b)(?P<handle>[A-Za-z0-9-]+)", re.I)),
-    ("gumroad", re.compile(r"\b(?P<handle>[A-Za-z0-9]+)\.gumroad\.com", re.I)),
+    ("deviantart", re.compile(r"(?<![\w.-])(?P<handle>[A-Za-z0-9-]+)\.deviantart\.com", re.I)),
+    # Lookbehind rejects multi-level subdomains: 64.media.tumblr.com is CDN
+    # infrastructure, not a blog.
+    ("tumblr", re.compile(r"(?<![\w.-])(?P<handle>[A-Za-z0-9-]+)\.tumblr\.com", re.I)),
+    ("tumblr", re.compile(r"tumblr\.com/(?!tagged\b|search\b|blog\b|post\b|share\b|app\b|apps\b|explore\b|dashboard\b|reblog\b|liked\b|likes\b|settings\b|login\b|register\b|about\b|policy\b|download\b)(?P<handle>[A-Za-z0-9-]+)", re.I)),
+    ("gumroad", re.compile(r"(?<![\w.-])(?P<handle>[A-Za-z0-9]+)\.gumroad\.com", re.I)),
     ("inprnt", re.compile(r"inprnt\.com/gallery/(?P<handle>\w+)", re.I)),
     ("instagram", re.compile(r"instagram\.com/(?!p/|reel/|explore\b)(?P<handle>[A-Za-z0-9._]{1,30})", re.I)),
     ("mihuashi", re.compile(r"mihuashi\.com/(?:users|painters)/(?P<handle>[^/\s?#\"']+)", re.I)),
@@ -252,12 +254,19 @@ _LINK_PATTERNS: list[tuple[str, re.Pattern]] = [
     ("biosite", re.compile(r"bio\.site/(?P<handle>[\w.-]+)", re.I)),
     ("coloso", re.compile(r"coloso\.(?:us|global|jp|co\.kr)/(?:[a-z]{2}/)?(?:products/)?(?P<handle>[\w-]+)", re.I)),
     ("linktree", re.compile(r"linktr\.ee/(?P<handle>[\w.]+)", re.I)),
-    ("carrd", re.compile(r"\b(?P<handle>[A-Za-z0-9-]+)\.carrd\.co", re.I)),
+    ("carrd", re.compile(r"(?<![\w.-])(?P<handle>[A-Za-z0-9-]+)\.carrd\.co", re.I)),
     ("potofu", re.compile(r"potofu\.me/(?P<handle>[\w.-]+)", re.I)),
     ("litlink", re.compile(r"lit\.link/(?:en/|ja/)?(?P<handle>\w+)", re.I)),
 ]
 
-_SUBDOMAIN_JUNK = {"www", "blog", "shop", "app", "help", "about", "support"}
+# Reserved/infrastructure labels that are never a personal account: share
+# domains (at.tumblr.com), CDNs (media.*, assets.*), utility subdomains.
+_SUBDOMAIN_JUNK = {"www", "blog", "shop", "app", "apps", "help", "about", "support",
+                   "at", "media", "assets", "static", "embed", "api", "cdn",
+                   "px", "mail", "link", "redirect", "status", "docs"}
+
+# A pure long-hex "handle" is a content hash from a CDN URL, not an account.
+_HEX_JUNK = re.compile(r"[0-9a-f]{16,}", re.IGNORECASE)
 
 # --- personal websites (generic fallback) ---------------------------------
 
@@ -327,7 +336,8 @@ def find_platform_links(text: str | None) -> list[PlatformLink]:
             groups = m.groupdict()
             handle = groups.get("handle")
             native_id = groups.get("native_id")
-            if handle and (len(handle) < 2 or handle.lower() in _SUBDOMAIN_JUNK):
+            if handle and (len(handle) < 2 or handle.lower() in _SUBDOMAIN_JUNK
+                           or _HEX_JUNK.fullmatch(handle)):
                 continue
             url = m.group(0)
             if not url.startswith("http"):

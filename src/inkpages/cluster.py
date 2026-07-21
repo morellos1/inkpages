@@ -167,6 +167,34 @@ def load_state(conn):
 def main() -> None:
     stats: Counter = Counter()
     with db.connect() as conn:
+        # Self-heal: close clustering-added memberships whose justifying edge
+        # has since been retracted (parser fixes, hub re-crawls).
+        with conn.cursor() as cur:
+            cur.execute(
+                """select ev.artist_id, (ev.details ->> 'account_id')::bigint as account_id,
+                          (ev.details ->> 'edge_id')::bigint as edge_id
+                   from artist_events ev
+                   join identity_edges e on e.id = (ev.details ->> 'edge_id')::bigint
+                   join artist_accounts aa on aa.artist_id = ev.artist_id
+                        and aa.account_id = (ev.details ->> 'account_id')::bigint
+                        and aa.removed_at is null and aa.added_by = 'clustering'
+                   where ev.event = 'account_added' and e.status = 'retracted'"""
+            )
+            for artist_id, account_id, edge_id in cur.fetchall():
+                cur.execute(
+                    """update artist_accounts set removed_at = now()
+                       where artist_id = %s and account_id = %s and removed_at is null""",
+                    (artist_id, account_id),
+                )
+                cur.execute(
+                    """insert into artist_events (artist_id, event, actor, details)
+                       values (%s, 'account_removed', 'pipeline', %s)""",
+                    (artist_id, json.dumps({"account_id": account_id,
+                                            "reason": "evidence_retracted",
+                                            "edge_id": edge_id})),
+                )
+                stats["healed_memberships"] += 1
+
         accounts, edges, membership = load_state(conn)
 
         directed = {(e["source_account_id"], e["target_account_id"]) for e in edges}
