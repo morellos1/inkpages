@@ -200,6 +200,14 @@ def upsert_edge(conn, source_account_id: int, target_account_id: int, *,
         )
 
 
+def set_platform_stats(conn, account_id: int, stats: dict) -> None:
+    import json
+
+    with conn.cursor() as cur:
+        cur.execute("update accounts set platform_stats = %s where id = %s",
+                    (json.dumps(stats), account_id))
+
+
 def set_contact_email(conn, account_id: int, email: str | None) -> None:
     with conn.cursor() as cur:
         cur.execute("update accounts set contact_email = %s where id = %s",

@@ -110,7 +110,8 @@ TEMPLATES = {
 <table><tr><th>platform</th><th>handle</th><th>confidence</th><th>followers</th><th>last post</th><th>comms</th><th>contact</th><th>bio (latest snapshot)</th></tr>
 {% for acc in accounts %}<tr>
   <td>{{ acc.platform }}</td>
-  <td>{% if acc.profile_url %}<a href="{{ acc.profile_url }}" target="_blank">{{ acc.handle }}</a>{% else %}{{ acc.handle }}{% endif %}</td>
+  <td>{% if acc.profile_url %}<a href="{{ acc.profile_url }}" target="_blank">{{ acc.handle }}</a>{% else %}{{ acc.handle }}{% endif %}
+      {% if acc.platform_stats %}<br><span class="muted">{% for k, v in acc.platform_stats.items() if v is not none %}{{ k }}: {{ v }}{% if not loop.last %} · {% endif %}{% endfor %}</span>{% endif %}</td>
   <td class="conf-{{ acc.confidence }}">{{ acc.confidence }}</td>
   <td>{{ "{:,}".format(acc.followers_count) if acc.followers_count else "—" }}</td>
   <td>{{ acc.last_post_at.date() if acc.last_post_at else "—" }}</td>
@@ -268,7 +269,7 @@ def artist(artist_id):
         artist = q(conn, "select * from artists where id = %s", (artist_id,))[0]
         accounts = q(conn, """
             select a.id, a.handle::text, a.profile_url, a.followers_count, a.status,
-                   a.last_post_at, a.contact_email, a.commission_status,
+                   a.platform_stats, a.last_post_at, a.contact_email, a.commission_status,
                    a.commission_confidence, a.commission_detail, a.commission_checked_at,
                    aa.confidence, p.slug as platform, p.display_only,
                    (select s.bio_text from account_snapshots s

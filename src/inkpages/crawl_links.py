@@ -46,7 +46,7 @@ def fetch_page(client: httpx.Client, url: str):
         resp = client.get(url, follow_redirects=True, timeout=20)
         if resp.status_code != 403:
             return resp
-    except httpx.HTTPError:
+    except (httpx.HTTPError, httpx.InvalidURL):
         return None
     try:
         proc = subprocess.run(

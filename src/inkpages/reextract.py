@@ -54,9 +54,17 @@ def process(conn, platforms, row, stats) -> list[int]:
     location = raw.get("location") if row["platform"] == "twitter" else None
     db.set_contact_email(conn, account_id, find_email(
         "\n".join(filter(None, [bio, location]))))
-    comm_text = "\n".join(filter(None, [bio, row["display_name"], location]))
-    db.set_commission(conn, account_id, find_commission_status(comm_text),
-                      row["captured_at"])
+    if row["platform"] == "skeb" and "acceptable" in raw:
+        # Platform-authoritative value from the stored API response — never
+        # let a bio re-parse stomp it.
+        db.set_commission(conn, account_id,
+                          ("open", 0.95, "skeb:acceptable") if raw["acceptable"]
+                          else ("closed", 0.95, "skeb:not accepting"),
+                          row["captured_at"])
+    else:
+        comm_text = "\n".join(filter(None, [bio, row["display_name"], location]))
+        db.set_commission(conn, account_id, find_commission_status(comm_text),
+                          row["captured_at"])
 
     link_targets: set[int] = set()
     for link in find_platform_links(link_text) + find_website_links(link_text):

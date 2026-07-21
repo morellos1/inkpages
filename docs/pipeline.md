@@ -134,6 +134,10 @@ including hub-mediated reciprocity. Then:
 - One-directional strong edges attach to a cluster at `strong` confidence,
   except when the target is high-prominence (top-N by followers) — those go to
   a human review queue, since impersonators link *to* famous accounts.
+- `profile_field` edges (platform-API-declared links, e.g. Skeb's
+  OAuth-verified `twitter_uid`) also **reverse-attach**: an unclustered
+  source joins its target's existing artist at near-proof. Safe because the
+  platform, not a copyable bio, asserts the link.
 - `same_handle` edges never merge anything; they surface as review
   suggestions only.
 - Edge-less accounts are not dropped: an account whose `discovered_via` is a

@@ -77,6 +77,18 @@ Browse the directory (badges, 18+ flags, follower ordering), inspect any
 artist's accounts with bio evidence, work the review queue
 (approve/reject attaches and merges), and suppress/unsuppress artists.
 
+### Skeb discovery (Eastern column, free)
+
+```sh
+uv run python -m inkpages.discover_skeb --top 1000
+```
+
+Top art creators from Skeb's public search index, each with platform-declared
+linked services (the OAuth-verified Twitter link reverse-attaches Skeb
+accounts into existing artists at near-proof), authoritative commission
+status, and native stats (completed works, complete rate, NSFW acceptance)
+stored in `accounts.platform_stats`.
+
 ### Link crawling & Twitter
 
 ```sh

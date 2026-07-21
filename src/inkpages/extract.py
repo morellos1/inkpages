@@ -77,7 +77,7 @@ BSKY_NSFW_SELF_LABELS = {"porn", "sexual", "nudity"}
 # --- shortened links -------------------------------------------------------
 
 _SHORTENER = re.compile(
-    r"(?:https?://)?(?:t\.co|bit\.ly|tinyurl\.com|goo\.gl)/[A-Za-z0-9]+", re.I)
+    r"(?:https?://)?(?:t\.co|bit\.ly|tinyurl\.com|goo\.gl|x\.gd)/[A-Za-z0-9]+", re.I)
 
 
 def find_short_links(text: str | None) -> list[str]:
@@ -253,6 +253,14 @@ _LINK_PATTERNS: list[tuple[str, re.Pattern]] = [
     ("artfight", re.compile(r"artfight\.net/~(?P<handle>[\w.-]+)", re.I)),
     ("biosite", re.compile(r"bio\.site/(?P<handle>[\w.-]+)", re.I)),
     ("coloso", re.compile(r"coloso\.(?:us|global|jp|co\.kr)/(?:[a-z]{2}/)?(?:products/)?(?P<handle>[\w-]+)", re.I)),
+    ("fanbox", re.compile(r"(?<![\w.-])(?P<handle>[\w-]+)\.fanbox\.cc", re.I)),
+    ("fanbox", re.compile(r"fanbox\.cc/@(?P<handle>[\w-]+)", re.I)),
+    ("fantia", re.compile(r"fantia\.jp/fanclubs/(?P<native_id>\d+)", re.I)),
+    ("booth", re.compile(r"(?<![\w.-])(?P<handle>[\w-]+)\.booth\.pm", re.I)),
+    ("dlsite", re.compile(r"dlsite\.com/\S*maker_id/(?P<handle>[A-Z]{2}\d+)", re.I)),
+    ("nijie", re.compile(r"nijie\.info/members\.php\?id=(?P<native_id>\d+)", re.I)),
+    ("skima", re.compile(r"skima\.jp/profile\?id=(?P<native_id>\d+)", re.I)),
+    ("coconala", re.compile(r"coconala\.com/users/(?P<native_id>\d+)", re.I)),
     ("linktree", re.compile(r"linktr\.ee/(?P<handle>[\w.]+)", re.I)),
     ("carrd", re.compile(r"(?<![\w.-])(?P<handle>[A-Za-z0-9-]+)\.carrd\.co", re.I)),
     ("potofu", re.compile(r"potofu\.me/(?P<handle>[\w.-]+)", re.I)),
@@ -270,8 +278,10 @@ _HEX_JUNK = re.compile(r"[0-9a-f]{16,}", re.IGNORECASE)
 
 # --- personal websites (generic fallback) ---------------------------------
 
-_GENERIC_URL = re.compile(r"(?:https?://|www\.)[^\s<>\"'()\[\]{}]+", re.I)
-_DOMAIN_OF = re.compile(r"^(?:https?://)?(?:www\.)?([^/\s:?#]+)", re.I)
+# ASCII URL charset only — bios decorate links with emoji that would
+# otherwise ride along into hostnames.
+_GENERIC_URL = re.compile(r"(?:https?://|www\.)[A-Za-z0-9.\-_~:/?#@!$&*+,;=%']+", re.I)
+_DOMAIN_OF = re.compile(r"^(?:https?://)?(?:www\.)?([A-Za-z0-9.-]+)", re.I)
 
 _PLATFORM_DOMAINS = {
     "x.com", "twitter.com", "bsky.app", "pixiv.net", "skeb.jp",
@@ -282,6 +292,8 @@ _PLATFORM_DOMAINS = {
     "discordapp.com", "t.me", "telegram.me", "twitch.tv",
     "furaffinity.net", "behance.net", "be.net", "boosty.to", "artfight.net",
     "bio.site", "coloso.us", "coloso.global", "coloso.jp", "coloso.co.kr",
+    "fanbox.cc", "fantia.jp", "booth.pm", "dlsite.com", "nijie.info",
+    "skima.jp", "coconala.com", "skeb.jp",
 }
 # Shorteners (opaque), commerce/utility noise, and booru domains — boorus are
 # hint-only by hard rule and must never enter the graph as artist links.

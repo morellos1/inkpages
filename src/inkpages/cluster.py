@@ -237,6 +237,27 @@ def main() -> None:
                     membership[m] = artist_id
                     stats["members_added"] += 1
 
+        # 2b. Reverse-attach on platform-verified links: a profile_field edge
+        # is emitted only from platform APIs (e.g. Skeb's OAuth-verified
+        # twitter_uid), so when its source is unclustered and its target
+        # already belongs to an artist, the source joins that artist at
+        # near_proof. This is what cross-links Skeb creators into artists we
+        # already have — and it is safe precisely because the platform, not a
+        # copyable bio, asserts the link. Runs before singletons so a Skeb
+        # account joins its existing artist instead of spawning a duplicate.
+        for edge in edges:
+            if edge["evidence_type"] != "profile_field":
+                continue
+            src, tgt = edge["source_account_id"], edge["target_account_id"]
+            if src in membership or tgt not in membership:
+                continue
+            if db.is_suppressed(conn, src):
+                continue
+            add_member(conn, membership[tgt], src, "near_proof",
+                       {"via": "platform_verified_link", "edge_id": edge["id"]})
+            membership[src] = membership[tgt]
+            stats["reverse_attached"] += 1
+
         # 3. Singletons: roster-sourced accounts with no membership survive on
         # their own — no edges required for existence (docs/pipeline.md stage 5).
         # Open-harvest arrivals (anyone can post a hashtag) additionally need
