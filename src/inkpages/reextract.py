@@ -51,10 +51,10 @@ def process(conn, platforms, row, stats) -> list[int]:
     if row["platform"] == "twitter":
         link_text = "\n".join([bio, raw.get("location") or ""] + expanded_urls(raw))
 
-    db.set_contact_email(conn, account_id, find_email(bio))
-    comm_text = "\n".join(filter(None, [
-        bio, row["display_name"],
-        raw.get("location") if row["platform"] == "twitter" else None]))
+    location = raw.get("location") if row["platform"] == "twitter" else None
+    db.set_contact_email(conn, account_id, find_email(
+        "\n".join(filter(None, [bio, location]))))
+    comm_text = "\n".join(filter(None, [bio, row["display_name"], location]))
     db.set_commission(conn, account_id, find_commission_status(comm_text),
                       row["captured_at"])
 

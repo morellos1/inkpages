@@ -110,7 +110,7 @@ TEMPLATES = {
 <table><tr><th>platform</th><th>handle</th><th>confidence</th><th>followers</th><th>last post</th><th>comms</th><th>contact</th><th>bio (latest snapshot)</th></tr>
 {% for acc in accounts %}<tr>
   <td>{{ acc.platform }}{% if acc.display_only %} <span class="muted">(display-only)</span>{% endif %}</td>
-  <td>{% if acc.profile_url and not acc.display_only %}<a href="{{ acc.profile_url }}" target="_blank">{{ acc.handle }}</a>{% else %}{{ acc.handle }}{% endif %}</td>
+  <td>{% if acc.profile_url %}<a href="{{ acc.profile_url }}" target="_blank">{{ acc.handle }}</a>{% else %}{{ acc.handle }}{% endif %}</td>
   <td class="conf-{{ acc.confidence }}">{{ acc.confidence }}</td>
   <td>{{ "{:,}".format(acc.followers_count) if acc.followers_count else "—" }}</td>
   <td>{{ acc.last_post_at.date() if acc.last_post_at else "—" }}</td>
@@ -177,6 +177,11 @@ puts an artist back in the directory and permanently exempts them from auto-demo
     <p>Evidence connects artists that currently exist separately:
     {% for a in item.ctx.artists %}<a href="{{ url_for('artist', artist_id=a.id) }}">{{ a.public_slug }}</a>{% if not loop.last %} + {% endif %}{% endfor %}</p>
     <p class="muted">Approve = merge into <b>{{ item.ctx.keeper_slug }}</b> (slugs of the others redirect).</p>
+  {% elif item.kind == 'singleton_gate' %}
+    <p>Suspected non-artist from an open harvest: <b>{{ item.payload.platform }}: {{ item.payload.handle }}</b>
+    ({{ "{:,}".format(item.payload.followers or 0) }} followers, via {{ item.payload.discovered_via }})</p>
+    {% if item.ctx.bio %}<div class="bio">{{ item.ctx.bio }}</div>{% endif %}
+    <p class="muted">Approve = list as an artist (permanently exempt from auto-demotion). Reject = keep out.</p>
   {% else %}<pre>{{ item.payload }}</pre>{% endif %}
   <form class="inline" method="post" action="{{ url_for('decide', item_id=item.id, decision='approve') }}"><button class="ok">Approve</button></form>
   <form class="inline" method="post" action="{{ url_for('decide', item_id=item.id, decision='reject') }}"><button class="no">Reject</button></form>
@@ -358,6 +363,11 @@ def _enrich(conn, item):
         ids = json.loads(payload["artist_ids"])
         artists = q(conn, "select id, public_slug from artists where id = any(%s) order by id", (ids,))
         ctx = {"artists": artists, "keeper_slug": artists[0]["public_slug"] if artists else "?"}
+    elif item["kind"] == "singleton_gate":
+        bio = q(conn, """select bio_text from account_snapshots
+                         where account_id = %s order by captured_at desc limit 1""",
+                (payload["account_id"],))
+        ctx = {"bio": bio[0]["bio_text"] if bio else None}
     item["ctx"] = ctx
     return item
 
@@ -387,6 +397,19 @@ def _approve(conn, item):
                             (payload["artist_id"], json.dumps(
                                 {"account_id": payload["target_account_id"],
                                  "edge_id": payload["edge_id"]})))
+        elif item["kind"] == "singleton_gate":
+            from .cluster import create_artist
+
+            account = q(conn, """
+                select a.id, a.handle::text, a.display_name, a.followers_count,
+                       p.slug as platform_slug
+                from accounts a join platforms p on p.id = a.platform_id
+                where a.id = %s""", (payload["account_id"],))
+            cur.execute("""select 1 from artist_accounts
+                           where account_id = %s and removed_at is null""",
+                        (payload["account_id"],))
+            if account and cur.fetchone() is None:
+                create_artist(conn, account[0], actor="admin:review-ui")
         elif item["kind"] == "cluster_merge":
             ids = sorted(json.loads(payload["artist_ids"]))
             keeper, losers = ids[0], ids[1:]

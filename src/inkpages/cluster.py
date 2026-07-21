@@ -117,6 +117,16 @@ def pending_review_exists(conn, kind: str, key: str, value) -> bool:
         return cur.fetchone() is not None
 
 
+def review_exists(conn, kind: str, key: str, value) -> bool:
+    """Any status — a decided item must not be re-asked every run."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "select 1 from review_items where kind = %s and payload ->> %s = %s",
+            (kind, key, str(value)),
+        )
+        return cur.fetchone() is not None
+
+
 def add_review_item(conn, kind: str, payload: dict, stats: Counter) -> None:
     with conn.cursor() as cur:
         cur.execute("insert into review_items (kind, payload) values (%s, %s)",
@@ -140,7 +150,8 @@ def load_state(conn):
         )
         accounts = {row["id"]: row for row in cur.fetchall()}
         cur.execute(
-            """select id, source_account_id, target_account_id from identity_edges
+            """select id, source_account_id, target_account_id, evidence_type
+               from identity_edges
                where status = 'present' and claim = 'same_person'
                  and evidence_type = any(%s)""",
             (list(STRONG_EVIDENCE),),
@@ -218,6 +229,15 @@ def main() -> None:
                     and account["status"] in ("active", "unknown")
                     and not db.is_suppressed(conn, account["id"])):
                 if not has_artist_evidence(account):
+                    # Suspected non-artist: a human decides, not a silent skip.
+                    if not review_exists(conn, "singleton_gate", "account_id", account["id"]):
+                        add_review_item(conn, "singleton_gate", {
+                            "account_id": account["id"],
+                            "handle": account["handle"],
+                            "platform": account["platform_slug"],
+                            "followers": account["followers_count"],
+                            "discovered_via": account["discovered_via"],
+                        }, stats)
                     stats["skipped_no_artist_evidence"] += 1
                     continue
                 artist_id = create_artist(conn, account)
@@ -310,6 +330,19 @@ def main() -> None:
             if db.is_suppressed(conn, tgt):
                 continue
             followers = accounts[tgt]["followers_count"] or 0
+            # Mention-based alt claims ("nsfw alt: @x") are the weakest
+            # same-person evidence — always a human call, never an auto-attach.
+            if edge["evidence_type"] == "bio_mention":
+                if not review_exists(conn, "one_directional_attach", "edge_id", edge["id"]):
+                    add_review_item(conn, "one_directional_attach", {
+                        "edge_id": edge["id"],
+                        "artist_id": src_artist,
+                        "source_account_id": src,
+                        "target_account_id": tgt,
+                        "target_followers": followers,
+                        "evidence": "bio_mention",
+                    }, stats)
+                continue
             if followers >= policy.REVIEW_FOLLOWER_THRESHOLD:
                 if not pending_review_exists(conn, "one_directional_attach", "edge_id", edge["id"]):
                     add_review_item(conn, "one_directional_attach", {

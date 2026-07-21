@@ -115,6 +115,19 @@ class XApi:
                     missing.append(err.get("value"))
         return found, missing
 
+    def users_by_ids(self, ids: list[str]):
+        """Refresh by stable numeric id — survives handle renames."""
+        found, missing = [], []
+        for i in range(0, len(ids), 100):
+            batch = ids[i:i + 100]
+            page = self._get("users", ids=",".join(batch),
+                             **{"user.fields": USER_FIELDS})
+            found += page.get("data", [])
+            for err in page.get("errors", []):
+                if err.get("parameter") == "ids":
+                    missing.append(err.get("value"))
+        return found, missing
+
 
 def expanded_urls(user: dict) -> list[str]:
     urls = []
@@ -159,7 +172,8 @@ def process_user(conn, platforms: dict, user: dict, via: str, details: dict,
     )
     stats["snapshots"] += 1
 
-    db.set_contact_email(conn, account_id, find_email(bio))
+    db.set_contact_email(conn, account_id, find_email(
+        "\n".join(filter(None, [bio, user.get("location")]))))
     comm = find_commission_status(
         "\n".join(filter(None, [bio, user.get("name"), user.get("location")])))
     db.set_commission(conn, account_id, comm, None)
