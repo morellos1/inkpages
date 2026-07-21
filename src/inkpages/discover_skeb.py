@@ -250,7 +250,11 @@ def process_creator(conn, platforms: dict, detail: dict, rank: int, stats: Count
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--top", type=int, default=1000)
+    parser.add_argument("--top", type=int, default=1000,
+                        help="Algolia ranked-creator harvest depth (0 to skip)")
+    parser.add_argument("--hydrate-known", action="store_true",
+                        help="fetch skeb accounts referenced but never fetched "
+                             "(bio-link targets) — pulls their OAuth twitter_uid etc.")
     parser.add_argument("--genre", default="art")
     parser.add_argument("--delay", type=float, default=0.35)
     args = parser.parse_args()
@@ -259,8 +263,6 @@ def main() -> None:
     client = SkebClient()
     with db.connect() as conn:
         platforms = db.platform_ids(conn)
-        creators = client.top_creators(args.genre, args.top)
-        print(f"algolia: {len(creators)} ranked creators")
 
         with conn.cursor() as cur:
             cur.execute(
@@ -270,6 +272,33 @@ def main() -> None:
             )
             recently_done = {r[0].lower() for r in cur.fetchall()}
 
+        # 1. Referenced-but-unhydrated skeb accounts (e.g. a pixiv/bio link to
+        # skeb.jp/@x that we never fetched, so its twitter_uid was never seen).
+        if args.hydrate_known:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """select handle::text from accounts
+                       where platform_id = %s and last_hydrated is null
+                         and status <> 'deleted'""",
+                    (platforms["skeb"],),
+                )
+                known = [r[0] for r in cur.fetchall()]
+            print(f"hydrate-known: {len(known)} referenced skeb accounts")
+            for i, screen_name in enumerate(known, start=1):
+                time.sleep(args.delay)
+                detail = client.user_detail(screen_name)
+                if detail is None:
+                    stats["detail_failed"] += 1
+                    continue
+                process_creator(conn, platforms, detail, 0, stats)
+                if i % 100 == 0:
+                    conn.commit()
+                    print(f"  …{i} hydrated")
+            conn.commit()
+
+        # 2. Top ranked creators from the public Algolia index.
+        creators = client.top_creators(args.genre, args.top) if args.top else []
+        print(f"algolia: {len(creators)} ranked creators")
         for rank, hit in enumerate(creators, start=1):
             screen_name = hit["screen_name"]
             if screen_name.lower() in recently_done:

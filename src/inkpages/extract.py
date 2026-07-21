@@ -275,7 +275,11 @@ _LINK_PATTERNS: list[tuple[str, re.Pattern]] = [
     ("skima", re.compile(r"skima\.jp/profile\?id=(?P<native_id>\d+)", re.I)),
     ("coconala", re.compile(r"coconala\.com/users/(?P<native_id>\d+)", re.I)),
     ("linktree", re.compile(r"linktr\.ee/(?P<handle>[\w.]+)", re.I)),
+    # tr.ee is Linktree's own short domain — same platform, different host.
+    ("linktree", re.compile(r"(?<![\w.-])tr\.ee/(?P<handle>[\w.]+)", re.I)),
     ("carrd", re.compile(r"(?<![\w.-])(?P<handle>[A-Za-z0-9-]+)\.carrd\.co", re.I)),
+    # Misskey — Mastodon-style JP social instances; the local handle is stable.
+    ("misskey", re.compile(r"misskey\.(?:io|design|art)/@(?P<handle>[A-Za-z0-9_]+)", re.I)),
     ("potofu", re.compile(r"potofu\.me/(?P<handle>[\w.-]+)", re.I)),
     ("litlink", re.compile(r"lit\.link/(?:en/|ja/)?(?P<handle>\w+)", re.I)),
 ]
@@ -300,7 +304,8 @@ _PLATFORM_DOMAINS = {
     "x.com", "twitter.com", "bsky.app", "pixiv.net", "skeb.jp",
     "artstation.com", "patreon.com", "ko-fi.com", "vgen.co", "cara.app",
     "xfolio.jp", "deviantart.com", "tumblr.com", "gumroad.com", "inprnt.com",
-    "instagram.com", "linktr.ee", "carrd.co", "potofu.me", "lit.link",
+    "instagram.com", "linktr.ee", "tr.ee", "carrd.co", "potofu.me", "lit.link",
+    "misskey.io", "misskey.design", "misskey.art",
     "mihuashi.com", "youtube.com", "youtu.be", "discord.gg", "discord.com",
     "discordapp.com", "t.me", "telegram.me", "twitch.tv",
     "furaffinity.net", "behance.net", "be.net", "boosty.to", "artfight.net",

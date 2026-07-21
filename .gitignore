@@ -1,3 +1,13 @@
+# Secrets — holds DB URL, X API creds, and PIXIV_SESSION. Never commit.
 .env
+
+# Python
 .venv/
 __pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# OS / editor
+.DS_Store

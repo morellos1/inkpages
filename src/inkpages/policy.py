@@ -12,6 +12,15 @@
 # accounts, so that is exactly where a lone bio link stops being sufficient.
 REVIEW_FOLLOWER_THRESHOLD = 10_000
 
+# Reciprocity rescue: a one-directional link to a *prominent* account normally
+# flips to a `related` connection (impersonation guard). But if that target also
+# links back to at least this many of the source artist's OWN distinctive
+# downstream targets (personal hubs like a specific Carrd/Patreon — not
+# community resources, not other prominent accounts), the two are provably the
+# same person and the target attaches instead. Two coincident personal hubs
+# between unrelated artists is vanishingly unlikely, which is the guard.
+RECIPROCITY_SHARED_MIN = 2
+
 # No artist may accumulate more than this many accounts on one identity
 # platform via clustering — nobody has 12 Twitters; a growing pile of
 # same-platform accounts means a chain reaction through shared/project links.

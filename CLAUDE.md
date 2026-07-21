@@ -12,13 +12,24 @@ rationale: `docs/schema.md` and `docs/pipeline.md`.
 
 ## Current state (2026-07-21)
 
-- **~2,070 artists**, ~11k accounts. Languages: ~1,319 ja / ~648 en / ~80 zh / ~20 ko.
-- **Discovery live**: Bluesky (free), Skeb (free), Pixiv (free), Twitter
-  (paid — ~$24.59 of a $100 budget spent).
+- **2,142 listed artists** (+44 hidden by the sub-50-follower cull), ~11.4k
+  accounts, 828 flagged 18+. Languages: ~1,319 ja / ~648 en / ~80 zh / ~20 ko.
+- **Discovery live**: Bluesky (free), Skeb (free — Algolia ranking +
+  `--hydrate-known` for referenced-but-unfetched accounts), Pixiv (free — SFW
+  weekly/monthly rankings + `--r18-pages` R18 rankings via `PIXIV_SESSION`
+  cookie), Twitter (paid — ~$24.59 of a $100 budget spent).
+- **pixiv R18 caveat**: the R18 ranking API is throttled/capped to ~1-2 pages
+  (~99 unique artists total), not the deep top-500 the SFW ranking allows. For
+  scale, an authed tag-search harvest (`/ajax/search/artworks/{tag}?mode=r18`)
+  is the better path — not built yet.
 - **Not built yet**: stratified ranking runs, Bluesky list/starter-pack
-  expansion, Graphtreon/Patreon, ArtStation/Cara/DeviantArt/Tumblr, the public
+  expansion, Graphtreon/Patreon, ArtStation/Cara/DeviantArt/Tumblr, R18
+  tag-search harvest, hydrating the OAuth-surfaced Twitters (paid), the public
   site.
-- Review queue: a handful of one-directional merge conflicts + ~20 anomaly flags.
+- Review queue: ~14 cluster_merge conflicts (from skeb OAuth links) + anomalies.
+- **Verification cull**: Twitter/Bluesky accounts under 50 followers set to
+  account status `hidden` (migration 0016); reversible with
+  `update accounts set status='active' where status='hidden'`.
 
 ## Non-negotiable rules (from the brief)
 
@@ -45,6 +56,9 @@ Everything runs under `uv`.
 
 1. **Discovery** — `discover_bluesky.py`, `discover_skeb.py`, `discover_pixiv.py`,
    `harvest_twitter.py`. Write accounts + snapshots + edges + attestations.
+   `discover_skeb --hydrate-known` fetches skeb accounts referenced but never
+   fetched (bio-link targets) to pull their OAuth `twitter_uid`; `discover_pixiv
+   --r18-pages N` harvests R18 rankings (needs `PIXIV_SESSION`, flags nsfw).
 2. **Link crawling** — `crawl_links.py`: resolves shorteners (t.co, x.gd) and
    crawls hub pages (Linktree/Carrd/potofu/lit.link/bio.site) for inner links.
    Linktree TLS-fingerprints Python → curl fallback on 403.
@@ -68,9 +82,20 @@ exist after a crawl).
 `review_ui.py` — Flask on `127.0.0.1:8322`. `uv run python -m inkpages.review_ui`
 (a `.claude/launch.json` config named `review-ui` exists for the preview pane;
 the browser pane reaches it at `127.0.0.1`, not `localhost`). Directory browse
-with avatars/badges/sources, per-artist evidence pages with per-account
-**detach**, review queue (merges / anomalies / attaches, bulk select), demoted
-page, suppress/unsuppress.
+with avatars/badges/sources, **faceted filters** (flags incl. `no X/bsky`;
+conjunctive platform; disjunctive `source`; conjunctive `comms` open —
+skeb/pixiv authoritative vs bio-attested; language), **sortable columns +
+pagination**, id-slug pixiv artists shown by name with a `no X/bsky` flag chip,
+per-artist
+evidence pages with per-account **detach** and per-connection **confirm** (the
+inverse of detach — vouch a `related` connection is same-person: merges the
+other artist in or attaches the floating account, and promotes the edge to
+`same_person`), review queue (merges / anomalies / attaches, bulk select),
+demoted page, suppress/unsuppress. pixiv/youtube accounts are labelled by
+`display_name` (id kept as handle/native_id). Hotlink-protected pixiv avatars
+(`i.pximg.net`) are served through a host-whitelisted `/img` referer proxy.
+Collapsible long bios. Connections already members of the artist are hidden
+(that link is internal to a merge, not an external connection).
 
 ## Clustering model — the load-bearing logic (`cluster.py`)
 
@@ -87,6 +112,18 @@ websites, secondary same-platform links).
   target, second same-platform, cap overflow) **flip to `related` connections**.
   If a connection later reciprocates, reextract restores `same_person` and the
   mutual path auto-merges.
+- **Shared-hub reciprocity rescue** (`cluster.py` step 4b,
+  `policy.RECIPROCITY_SHARED_MIN=2`): a prominent one-directional target
+  (pixiv→X etc.) normally flips to `related` (impersonation guard). But flips
+  stored as `unreciprocated_prominent` are re-checked every run: if the target
+  links back to ≥2 of the artist's OWN distinctive downstream targets (personal
+  hubs, excluding community shared-targets and other prominent accounts), it's
+  provably the same person → attach + restore the edge to `same_person`.
+  Guards: not a second same-platform account, cap-guarded, not a shared-target.
+  Solves the JS-rendered-hub gap (Carrd renders links client-side, so
+  `crawl_links` gets `link_count: 0` and no hub back-edges form — the shared
+  *outbound* targets are the reciprocity signal instead). Manual **confirm** in
+  the review UI is the override for cases below the threshold.
 - **`MAX_SAME_PLATFORM = 3`**: no artist accumulates >3 accounts on one identity
   platform via clustering; components exceeding it never auto-merge (guards
   against the mega-cluster chain reaction — see git 639 autopsy).
@@ -112,7 +149,11 @@ normal guards. See `discover_skeb.py` `FIELD_VALUE_BLOCKLIST`.
 
 - `accounts` — one per (platform, native identity). `native_id` is truth
   (handles mutate). `platform_stats`/`avatar_url`/`commission_*`/`last_post_at`/
-  `contact_email`/`link_checked_at`.
+  `contact_email`/`link_checked_at`. `status`: active/unknown are published;
+  `hidden` (migration 0016) removes from the directory + roster-singleton
+  creation without deleting (snapshots/edges/membership kept) — used for
+  verification culls. `directory_entries` gates every per-account subquery on
+  `status in ('active','unknown')` (migration 0017).
 - `identity_edges` — directed claims; `claim`, `relation_hint`, `evidence_type`,
   `evidence_snapshot_id`, `status`.
 - `artists` — stable slug, `merged_into` pointer, `language`, `region`, `status`.
@@ -126,14 +167,19 @@ normal guards. See `discover_skeb.py` `FIELD_VALUE_BLOCKLIST`.
 ## Conventions
 
 - Commit messages end with the Claude co-author trailer. Commit after each
-  coherent feature; never commit `.env` (gitignored, holds X API creds — **user
-  should rotate; they were pasted in chat**).
+  coherent feature; never commit `.env` (gitignored, holds X API creds +
+  `PIXIV_SESSION` — **both were pasted in chat; user should rotate**).
 - Paid workers check `X_SPEND_CAP_CENTS` (default 10000) against `api_usage`
   before any call and ledger every request. **Never make a paid X API call
   without explicit user approval of the spend.**
 - Extraction (`extract.py`) is pure functions of text → re-runnable via
   `reextract.py`. When adding a platform: pattern in `_LINK_PATTERNS`, domain in
-  `_NON_WEBSITE_DOMAINS`, row in a seed migration, maybe `display_rank`.
+  `_NON_WEBSITE_DOMAINS`, row in a seed migration, maybe `display_rank`. Aliases
+  for an existing platform are just extra `_LINK_PATTERNS` rows mapping the same
+  slug (e.g. `tr.ee`→linktree). `misskey` is a first-class platform now
+  (migration 0018 also reclassifies old `website` rows that were misskey links).
+  **After adding a pattern, run `reextract.py` to backfill stored snapshots**
+  (e.g. ~87 `tr.ee` links still parsed as `website` until a reextract pass).
 - URL matching is ASCII-only (bios decorate links with emoji). Handles are
   truncation-guarded (ellipsis) and hex-junk-guarded (CDN hashes).
 - Verify against live data before declaring done: run the worker, check the DB,

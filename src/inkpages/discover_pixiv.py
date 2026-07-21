@@ -33,15 +33,21 @@ UA = {
     "Accept": "application/json",
 }
 RANK_MODES = ("weekly", "monthly", "original")
+# R18 ranking pages require an authenticated pixiv session (PIXIV_SESSION cookie)
+# with "display R-18 works" enabled on the account.
+R18_RANK_MODES = ("weekly_r18", "monthly_r18")
 
 # pixiv's registered social block -> our platform slugs
 SOCIAL_PLATFORMS = {"twitter": "twitter", "instagram": "instagram"}
 
 
 class Pixiv:
-    def __init__(self) -> None:
+    def __init__(self, session: str | None = None) -> None:
         self.calls: Counter = Counter()
-        self._client = httpx.Client(timeout=25, headers=UA)
+        headers = dict(UA)
+        if session:
+            headers["Cookie"] = f"PHPSESSID={session}"
+        self._client = httpx.Client(timeout=25, headers=headers)
 
     def _get(self, url: str, **params):
         for attempt in (1, 2):
@@ -151,6 +157,11 @@ def process_user(conn, platforms, pixiv: Pixiv, user_id: str, via: str,
     for signal, matched in find_nsfw_flags(bio):
         db.upsert_content_flag(conn, account_id, "nsfw", signal, matched, snapshot_id)
         stats["nsfw_flags"] += 1
+    # Surfacing via an R18 ranking is itself a platform nsfw signal.
+    if details.get("r18"):
+        db.upsert_content_flag(conn, account_id, "nsfw", "platform_flag",
+                               "pixiv:r18_ranking", snapshot_id)
+        stats["nsfw_flags"] += 1
 
     emitted: set[int] = set()
 
@@ -200,13 +211,20 @@ def main() -> None:
     parser.add_argument("--hydrate-known", action="store_true",
                         help="hydrate already-referenced pixiv accounts")
     parser.add_argument("--rank-pages", type=int, default=6,
-                        help="ranking pages per mode (50 users/page)")
+                        help="SFW ranking pages per mode (50 users/page)")
+    parser.add_argument("--r18-pages", type=int, default=0,
+                        help="R18 ranking pages per mode (needs PIXIV_SESSION); "
+                             "10 pages ≈ top 500 per mode")
     parser.add_argument("--limit", type=int, default=2000)
     parser.add_argument("--delay", type=float, default=0.6)
     args = parser.parse_args()
 
+    session = db.env_var("PIXIV_SESSION")
+    if args.r18_pages and not session:
+        raise SystemExit("--r18-pages needs PIXIV_SESSION set (logged-in PHPSESSID)")
+
     stats: Counter = Counter()
-    pixiv = Pixiv()
+    pixiv = Pixiv(session=session)
     with db.connect() as conn:
         platforms = db.platform_ids(conn)
 
@@ -216,7 +234,13 @@ def main() -> None:
                 for uid, rank in pixiv.ranking_user_ids(mode, args.rank_pages).items():
                     if uid not in todo:
                         todo[uid] = ("pixiv_ranking", {"mode": mode, "rank": rank})
-            print(f"rankings: {len(todo)} unique artists")
+            print(f"SFW rankings: {len(todo)} unique artists")
+        if args.r18_pages:
+            for mode in R18_RANK_MODES:
+                for uid, rank in pixiv.ranking_user_ids(mode, args.r18_pages).items():
+                    # R18 wins the flag even if the uid also charted SFW.
+                    todo[uid] = ("pixiv_ranking", {"mode": mode, "rank": rank, "r18": True})
+            print(f"with R18 rankings: {len(todo)} unique artists")
         if args.hydrate_known:
             with conn.cursor() as cur:
                 cur.execute(

@@ -435,6 +435,33 @@ def main() -> None:
                 indegree[tgt].add(a)
         shared_targets = {t for t, artists in indegree.items() if len(artists) >= 2}
 
+        # Reciprocity rescue support: what each account links out to (strong
+        # same-person edges), and the accounts of each artist. A prominent
+        # one-directional target that links back to >=2 of the source artist's
+        # own distinctive downstream targets is the same person, not an
+        # impersonator — see policy.RECIPROCITY_SHARED_MIN.
+        out_targets: dict[int, set[int]] = defaultdict(set)
+        for e in edges:
+            out_targets[e["source_account_id"]].add(e["target_account_id"])
+        members_by_artist: dict[int, set[int]] = defaultdict(set)
+        for account_id, artist_id in membership.items():
+            members_by_artist[artist_id].add(account_id)
+
+        def shared_reciprocity(src_artist: int, tgt: int) -> int:
+            """Count distinctive downstream targets shared between tgt and the
+            src artist. Excludes community shared-targets and prominent accounts
+            (both are things unrelated artists coincidentally co-link)."""
+            src_links: set[int] = set()
+            for m in members_by_artist[src_artist]:
+                src_links |= out_targets.get(m, set())
+            shared = out_targets.get(tgt, set()) & src_links
+            return sum(
+                1 for s in shared
+                if s not in shared_targets
+                and (accounts.get(s, {}).get("followers_count") or 0)
+                    < policy.REVIEW_FOLLOWER_THRESHOLD
+            )
+
         with conn.cursor() as cur:
             for tgt in shared_targets:
                 cur.execute(
@@ -515,8 +542,19 @@ def main() -> None:
             second_same_platform = \
                 platform_counts[src_artist][accounts[tgt]["platform_slug"]] >= 1
             if followers >= policy.REVIEW_FOLLOWER_THRESHOLD:
-                flip_to_connection(conn, edge["id"], "unreciprocated_prominent")
-                stats["flipped_prominent"] += 1
+                # Prominent target: normally an impersonation risk → flip. But if
+                # it links back to >=2 of this artist's own distinctive hubs, the
+                # reciprocity proves same-person; attach instead (cap-guarded).
+                if (shared_reciprocity(src_artist, tgt) >= policy.RECIPROCITY_SHARED_MIN
+                        and not second_same_platform and cap_ok(src_artist, tgt)):
+                    add_member(conn, src_artist, tgt, "strong",
+                               {"via": "shared_hub_reciprocity", "edge_id": edge["id"]})
+                    membership[tgt] = src_artist
+                    note_attach(src_artist, tgt)
+                    stats["reciprocity_merged"] += 1
+                else:
+                    flip_to_connection(conn, edge["id"], "unreciprocated_prominent")
+                    stats["flipped_prominent"] += 1
             elif second_same_platform or not cap_ok(src_artist, tgt):
                 flip_to_connection(conn, edge["id"], "secondary_link")
                 stats["flipped_secondary"] += 1
@@ -527,9 +565,44 @@ def main() -> None:
                 note_attach(src_artist, tgt)
                 stats["members_added"] += 1
 
+        # 4b. Re-evaluate previously flipped prominent connections. Those live
+        # as `related` (so they're absent from load_state's same_person set) and
+        # would otherwise stay stuck forever. Reciprocity can appear later (a hub
+        # gets crawled, the target's own links get extracted); when >=2 of the
+        # artist's distinctive hubs are now shared, attach and restore the edge.
+        from psycopg.rows import dict_row
+
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                """select id, source_account_id, target_account_id
+                   from identity_edges
+                   where status = 'present' and claim = 'related'
+                     and relation_hint = 'unreciprocated_prominent'"""
+            )
+            reflips = cur.fetchall()
+        for edge in reflips:
+            src, tgt = edge["source_account_id"], edge["target_account_id"]
+            src_artist = membership.get(src)
+            if (src_artist is None or tgt not in accounts
+                    or membership.get(tgt) is not None or tgt in shared_targets):
+                continue
+            if platform_counts[src_artist][accounts[tgt]["platform_slug"]] >= 1:
+                continue  # would be a second same-platform account — stay cautious
+            if (shared_reciprocity(src_artist, tgt) >= policy.RECIPROCITY_SHARED_MIN
+                    and cap_ok(src_artist, tgt)):
+                add_member(conn, src_artist, tgt, "strong",
+                           {"via": "shared_hub_reciprocity", "edge_id": edge["id"]})
+                with conn.cursor() as ecur:
+                    ecur.execute(
+                        """update identity_edges set claim = 'same_person',
+                               relation_hint = 'shared_hub_reciprocity'
+                           where id = %s""", (edge["id"],))
+                membership[tgt] = src_artist
+                note_attach(src_artist, tgt)
+                stats["reciprocity_merged"] += 1
+
         # 5. Anomaly flags: artists whose link graph looks like a credits
         # dump — surfaced for manual review, no automatic action.
-        from psycopg.rows import dict_row
 
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
