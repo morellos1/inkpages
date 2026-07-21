@@ -23,10 +23,19 @@ rationale: `docs/schema.md` and `docs/pipeline.md`.
   scale, an authed tag-search harvest (`/ajax/search/artworks/{tag}?mode=r18`)
   is the better path — not built yet.
 - **Not built yet**: stratified ranking runs, Bluesky list/starter-pack
-  expansion, Graphtreon/Patreon, ArtStation/Cara/DeviantArt/Tumblr, R18
-  tag-search harvest, hydrating the OAuth-surfaced Twitters (paid), the public
+  expansion, Graphtreon/Patreon, ArtStation/Cara/DeviantArt/Tumblr, the public
   site.
-- Review queue: ~14 cluster_merge conflicts (from skeb OAuth links) + anomalies.
+- Review queue: **41 pending** — 21 `cluster_merge` conflicts (mostly from the
+  skeb `--hydrate-known` OAuth links joining two existing artists) + anomalies.
+- **Next up (in priority order):**
+  1. **Hydrate the 153 OAuth-surfaced member Twitters** — skeb hydration +
+     reciprocity attached them but `last_hydrated is null`, so they show no
+     followers/bio. `hydrate_twitter.py` (users_by_ids) fixes it. **Paid — needs
+     explicit spend approval** (~$X against the $100 cap; check `api_usage`).
+  2. **R18 tag-search harvest** — the ranking API caps at ~99 (see caveat
+     above). Build an authed `/ajax/search/artworks/{tag}?mode=r18` harvester
+     (reuse the `PIXIV_SESSION` cookie + `Pixiv` client) to scale NSFW coverage.
+  3. **Work the 21 `cluster_merge` reviews** in the review UI.
 - **Verification cull**: Twitter/Bluesky accounts under 50 followers set to
   account status `hidden` (migration 0016); reversible with
   `update accounts set status='active' where status='hidden'`.
