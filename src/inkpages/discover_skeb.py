@@ -46,6 +46,14 @@ ID_FIELDS = {
 }
 NUMERIC_NATIVE = {"pixiv", "fantia", "nijie", "skima", "coconala"}
 
+# Known shared defaults people leave in Skeb's user-entered service fields —
+# never an artist's own account. (The youtube id is DLsite's official channel.)
+FIELD_VALUE_BLOCKLIST = {
+    ("youtube", "UCQEN3LsNnqottC2mXx3tAjA"),
+    ("fanbox", "www"),
+}
+_FIELD_JUNK = {"www", "http", "https", "none", "null"}
+
 URL_TEMPLATES = {
     "pixiv": "https://www.pixiv.net/users/{}",
     "fanbox": "https://{}.fanbox.cc",
@@ -120,20 +128,26 @@ def linked_accounts(detail: dict) -> list[tuple[str, str | None, str | None, str
     if uid := detail.get("twitter_uid"):
         handle = next((l.get("screen_name") for l in detail.get("user_service_links") or []
                        if l.get("provider") == "twitter"), None)
+        # "oauth" marks the one platform-VERIFIED link — the other id fields
+        # are user-entered and get no special exemptions at clustering.
         out.append(("twitter", str(uid), handle,
-                    f"https://x.com/{handle}" if handle else None))
+                    f"https://x.com/{handle}" if handle else None, "oauth"))
     for field, platform in ID_FIELDS.items():
         value = detail.get(field)
         if value in (None, "", 0):
             continue
         value = str(value)
+        if (len(value) < 2 or value.lower() in _FIELD_JUNK
+                or (platform, value) in FIELD_VALUE_BLOCKLIST):
+            continue
         url = URL_TEMPLATES.get(platform, "").format(value) or None
         if platform in NUMERIC_NATIVE:
-            out.append((platform, value, value, url))
+            out.append((platform, value, value, url, None))
         elif platform == "youtube" and value.startswith("UC"):
-            out.append((platform, value, value, f"https://www.youtube.com/channel/{value}"))
+            out.append((platform, value, value,
+                        f"https://www.youtube.com/channel/{value}", None))
         else:
-            out.append((platform, None, value, url))
+            out.append((platform, None, value, url, None))
     return out
 
 
@@ -213,8 +227,8 @@ def process_creator(conn, platforms: dict, detail: dict, rank: int, stats: Count
                        matched_text=None, claim=claim, relation_hint=hint)
         stats[f"edges_{claim}"] += 1
 
-    for platform, native_id, handle, url in linked_accounts(detail):
-        emit(platform, native_id, handle, url, "profile_field", "same_person", None)
+    for platform, native_id, handle, url, hint in linked_accounts(detail):
+        emit(platform, native_id, handle, url, "profile_field", "same_person", hint)
 
     weak: list = []
     for link in (detail.get("user_service_links") or []):

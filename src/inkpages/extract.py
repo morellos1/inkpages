@@ -313,6 +313,7 @@ _NON_WEBSITE_DOMAINS = _PLATFORM_DOMAINS | {
     "cash.app", "streamlabs.com", "throne.com", "thron.ee",
     "donmai.us", "gelbooru.com", "e621.net", "rule34.xxx",
     "safebooru.org", "yande.re", "konachan.com", "sankakucomplex.com",
+    "gmail.com", "amazon.jp", "melonbooks.co.jp", "youtube.jp",
 }
 
 

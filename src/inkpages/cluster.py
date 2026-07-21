@@ -153,7 +153,8 @@ def load_state(conn):
         )
         accounts = {row["id"]: row for row in cur.fetchall()}
         cur.execute(
-            """select id, source_account_id, target_account_id, evidence_type
+            """select id, source_account_id, target_account_id, evidence_type,
+                      relation_hint
                from identity_edges
                where status = 'present' and claim = 'same_person'
                  and evidence_type = any(%s)""",
@@ -279,7 +280,7 @@ def main() -> None:
         # copyable bio, asserts the link. Runs before singletons so a Skeb
         # account joins its existing artist instead of spawning a duplicate.
         for edge in edges:
-            if edge["evidence_type"] != "profile_field":
+            if edge["evidence_type"] != "profile_field" or edge["relation_hint"] != "oauth":
                 continue
             src, tgt = edge["source_account_id"], edge["target_account_id"]
             if src in membership or tgt not in membership:
@@ -399,10 +400,12 @@ def main() -> None:
             tgt_artist = membership.get(tgt)
             if tgt_artist == src_artist:
                 continue
-            # Popularity makes an account a shared TARGET of many bios, but a
-            # platform-verified claim overrides that — the platform says this
-            # specific one is theirs. Everything weaker defers to the guard.
-            if tgt in shared_targets and edge["evidence_type"] != "profile_field":
+            # Popularity makes an account a shared TARGET of many bios, but an
+            # OAuth-verified claim overrides that — the platform says this
+            # specific one is theirs. User-entered profile fields get no such
+            # exemption (shared defaults like DLsite's youtube id are exactly
+            # what the guard exists to catch).
+            if tgt in shared_targets and edge["relation_hint"] != "oauth":
                 stats["skipped_shared_target"] += 1
                 continue
             if tgt_artist is not None:
@@ -419,10 +422,11 @@ def main() -> None:
             if db.is_suppressed(conn, tgt):
                 continue
             followers = accounts[tgt]["followers_count"] or 0
-            # Platform-verified links (Skeb OAuth twitter etc.) are exempt
-            # from suspicion checks in the forward direction too — the
-            # platform vouches, prominence is irrelevant.
-            if edge["evidence_type"] == "profile_field":
+            # OAuth-verified links are exempt from suspicion checks in the
+            # forward direction too — the platform vouches, prominence is
+            # irrelevant. Ordinary (user-entered) profile fields fall through
+            # to the normal one-directional rules below.
+            if edge["evidence_type"] == "profile_field" and edge["relation_hint"] == "oauth":
                 if cap_ok(src_artist, tgt):
                     add_member(conn, src_artist, tgt, "near_proof",
                                {"via": "platform_verified_link", "edge_id": edge["id"]})
