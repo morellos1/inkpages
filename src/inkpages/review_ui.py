@@ -109,7 +109,7 @@ TEMPLATES = {
 <h2>Accounts</h2>
 <table><tr><th>platform</th><th>handle</th><th>confidence</th><th>followers</th><th>last post</th><th>comms</th><th>contact</th><th>bio (latest snapshot)</th></tr>
 {% for acc in accounts %}<tr>
-  <td>{{ acc.platform }}{% if acc.display_only %} <span class="muted">(display-only)</span>{% endif %}</td>
+  <td>{{ acc.platform }}</td>
   <td>{% if acc.profile_url %}<a href="{{ acc.profile_url }}" target="_blank">{{ acc.handle }}</a>{% else %}{{ acc.handle }}{% endif %}</td>
   <td class="conf-{{ acc.confidence }}">{{ acc.confidence }}</td>
   <td>{{ "{:,}".format(acc.followers_count) if acc.followers_count else "—" }}</td>

@@ -88,6 +88,14 @@ uv run python -m inkpages.hydrate_twitter --limit 200                  # paid, b
 Paid workers check the `api_usage` ledger against `X_SPEND_CAP_CENTS`
 (default $100) before any call and ledger every request.
 
+**After any discovery or hydration run**, finish with the free post-stages
+(hub crawling + clustering) — new bios mint new hubs whose contents only
+exist after a crawl:
+
+```sh
+uv run python -m inkpages.pipeline   # crawl_links, then cluster
+```
+
 ## Status
 
 Running end to end: Bluesky + Twitter discovery, shortener/hub crawling,
