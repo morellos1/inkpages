@@ -54,6 +54,10 @@ ROSTER_SOURCES = {
     "twitter_list",
     "skeb_ranking",
     "pixiv_ranking",
+    # Popularity-sorted tag search (premium popular_d, AI-flagged works
+    # excluded) — appearing there is roster-grade evidence of being an artist,
+    # exactly like charting in a ranking.
+    "pixiv_tag_search",
     "patreon_ranking",
     "convention_list",
     "platform_roster",  # Cara / ArtStation / DeviantArt / XFolio enumerations

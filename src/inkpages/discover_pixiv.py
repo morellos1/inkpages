@@ -8,6 +8,10 @@ Two jobs:
 2. Discover new artists from the public SFW illust rankings
    (`ranking.php?format=json`, 50/page) — discovered_via='pixiv_ranking'
    (roster source), rank kept as an auxiliary signal.
+3. Tag-search harvest (`ajax/search/artworks/{tag}`, 60 works/page) —
+   popularity-sorted (`popular_d`, premium session), AI-flagged works excluded
+   via ai_type=1, `--tag-mode r18` scales NSFW discovery past the throttled
+   R18 ranking API. discovered_via='pixiv_tag_search' (roster source).
 
 Pixiv bios are dense with AI学習禁止-style attestations; the social block and
 bio links cross-link to Twitter for clustering. R18 rankings need auth and
@@ -75,6 +79,35 @@ class Pixiv:
         if data.get("error"):
             return {"_deleted": True}
         return data.get("body")
+
+    def search_tag_user_ids(self, tag: str, mode: str, order: str,
+                            pages: int) -> dict[str, dict]:
+        """user_id -> discovery details from the tag-search API (60 works/page).
+        order=popular_d needs a premium session; mode=r18 needs an authed
+        session with R-18 display enabled. ai_type=1 hides works their author
+        flagged as AI-generated — a discovery filter only, never an
+        attestation (the no-AI badge stays strictly self-attested bios)."""
+        from urllib.parse import quote
+
+        found: dict[str, dict] = {}
+        for page in range(1, pages + 1):
+            data = self._get(
+                f"https://www.pixiv.net/ajax/search/artworks/{quote(tag)}",
+                word=tag, order=order, mode=mode, p=page,
+                s_mode="s_tag_full", type="illust", ai_type=1, lang="ja")
+            if not data or data.get("error"):
+                break
+            items = ((data.get("body") or {}).get("illustManga") or {}).get("data") or []
+            if not items:
+                break
+            for item in items:
+                uid = str(item.get("userId") or "")
+                if uid and uid != "0" and uid not in found:
+                    found[uid] = {"tag": tag, "mode": mode, "order": order,
+                                  "page": page,
+                                  "r18": (item.get("xRestrict") or 0) >= 1}
+            time.sleep(0.5)
+        return found
 
     def ranking_user_ids(self, mode: str, pages: int) -> dict[str, int]:
         """user_id -> best rank for a mode."""
@@ -157,10 +190,12 @@ def process_user(conn, platforms, pixiv: Pixiv, user_id: str, via: str,
     for signal, matched in find_nsfw_flags(bio):
         db.upsert_content_flag(conn, account_id, "nsfw", signal, matched, snapshot_id)
         stats["nsfw_flags"] += 1
-    # Surfacing via an R18 ranking is itself a platform nsfw signal.
+    # Surfacing via an R18 ranking or R18 tag search is itself a platform
+    # nsfw signal.
     if details.get("r18"):
         db.upsert_content_flag(conn, account_id, "nsfw", "platform_flag",
-                               "pixiv:r18_ranking", snapshot_id)
+                               "pixiv:r18_tag_search" if via == "pixiv_tag_search"
+                               else "pixiv:r18_ranking", snapshot_id)
         stats["nsfw_flags"] += 1
 
     emitted: set[int] = set()
@@ -215,13 +250,25 @@ def main() -> None:
     parser.add_argument("--r18-pages", type=int, default=0,
                         help="R18 ranking pages per mode (needs PIXIV_SESSION); "
                              "10 pages ≈ top 500 per mode")
+    parser.add_argument("--tag", action="append", default=[],
+                        help="tag-search harvest (repeatable); popularity-sorted, "
+                             "AI-flagged works excluded")
+    parser.add_argument("--tag-mode", choices=("safe", "r18", "all"), default="safe")
+    parser.add_argument("--tag-order", default="popular_d",
+                        help="popular_d needs a premium PIXIV_SESSION")
+    parser.add_argument("--tag-pages", type=int, default=5,
+                        help="search pages per tag (60 works/page)")
+    parser.add_argument("--new-only", action="store_true",
+                        help="only process users not already in the database")
+    parser.add_argument("--max-new", type=int, default=0,
+                        help="stop the tag harvest after this many new users (0 = no cap)")
     parser.add_argument("--limit", type=int, default=2000)
     parser.add_argument("--delay", type=float, default=0.6)
     args = parser.parse_args()
 
     session = db.env_var("PIXIV_SESSION")
-    if args.r18_pages and not session:
-        raise SystemExit("--r18-pages needs PIXIV_SESSION set (logged-in PHPSESSID)")
+    if (args.r18_pages or args.tag) and not session:
+        raise SystemExit("--r18-pages/--tag need PIXIV_SESSION set (logged-in PHPSESSID)")
 
     stats: Counter = Counter()
     pixiv = Pixiv(session=session)
@@ -241,6 +288,29 @@ def main() -> None:
                     # R18 wins the flag even if the uid also charted SFW.
                     todo[uid] = ("pixiv_ranking", {"mode": mode, "rank": rank, "r18": True})
             print(f"with R18 rankings: {len(todo)} unique artists")
+        if args.tag:
+            known_ids: set[str] = set()
+            if args.new_only or args.max_new:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """select native_id from accounts
+                           where platform_id = %s and native_id is not null""",
+                        (platforms["pixiv"],))
+                    known_ids = {r[0] for r in cur.fetchall()}
+            new_count = 0
+            for tag in args.tag:
+                for uid, details in pixiv.search_tag_user_ids(
+                        tag, args.tag_mode, args.tag_order, args.tag_pages).items():
+                    if uid in todo:
+                        continue
+                    is_new = uid not in known_ids
+                    if args.new_only and not is_new:
+                        continue
+                    if args.max_new and new_count >= args.max_new:
+                        break
+                    todo[uid] = ("pixiv_tag_search", details)
+                    new_count += is_new
+            print(f"with tag search: {len(todo)} total ({new_count} not yet in db)")
         if args.hydrate_known:
             with conn.cursor() as cur:
                 cur.execute(
