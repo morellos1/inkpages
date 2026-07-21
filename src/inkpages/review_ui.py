@@ -5,9 +5,12 @@ Usage: uv run python -m inkpages.review_ui   (then open http://127.0.0.1:8322)
 Local admin tooling — binds to 127.0.0.1 only.
 """
 import json
+import secrets
+import time
 
-from flask import Flask, redirect, render_template, request, url_for
+from flask import Flask, abort, redirect, render_template, request, url_for
 from jinja2 import DictLoader
+from markupsafe import Markup
 from psycopg.rows import dict_row
 
 from . import db
@@ -298,11 +301,11 @@ document.querySelectorAll('.bio').forEach(function (box) {
 
 <div class="card">
 {% if suppressed %}
-  <form class="inline" method="post" action="{{ url_for('unsuppress', artist_id=artist.id) }}">
+  <form class="inline" method="post" action="{{ url_for('unsuppress', artist_id=artist.id) }}">{{ csrf() }}
     <button class="ok">Lift suppression</button>
     <span class="muted">currently: {{ suppressed.reason }} — {{ suppressed.note or "" }}</span></form>
 {% else %}
-  <form class="inline" method="post" action="{{ url_for('suppress', artist_id=artist.id) }}">
+  <form class="inline" method="post" action="{{ url_for('suppress', artist_id=artist.id) }}">{{ csrf() }}
     <select name="reason"><option>opt_out</option><option>impersonation</option><option>ai_use_confirmed</option><option>other</option></select>
     <input type="text" name="note" placeholder="note">
     <button class="no">Suppress (remove from directory)</button></form>
@@ -324,7 +327,7 @@ document.querySelectorAll('.bio').forEach(function (box) {
   <td>{{ acc.contact_email or "—" }}</td>
   <td>{{ m.bio(acc.bio) }}</td>
   <td><form class="inline" method="post" action="{{ url_for('detach', artist_id=artist.id, account_id=acc.id) }}"
-       data-confirm="Detach {{ acc.handle }} from this artist? It becomes a connection and will never auto-reattach.">
+       data-confirm="Detach {{ acc.handle }} from this artist? It becomes a connection and will never auto-reattach.">{{ csrf() }}
        <button class="no">detach</button></form></td>
 </tr>{% endfor %}</table>
 
@@ -343,7 +346,7 @@ attach/merge.</p>
       {% else %}{{ c.relation_hint or "related" }}{% endif %}</td>
   <td class="muted">{{ c.matched_text or c.evidence_url or "" }}</td>
   <td><form class="inline" method="post" action="{{ url_for('confirm_connection', artist_id=artist.id, account_id=c.other_id) }}"
-       data-confirm="{% if c.other_artist_id %}Merge artist {{ c.other_artist_slug }} (via {{ c.other_platform }}:{{ c.other_handle }}) into this artist?{% else %}Confirm {{ c.other_platform }}:{{ c.other_handle }} as the same person and attach it to this artist?{% endif %}">
+       data-confirm="{% if c.other_artist_id %}Merge artist {{ c.other_artist_slug }} (via {{ c.other_platform }}:{{ c.other_handle }}) into this artist?{% else %}Confirm {{ c.other_platform }}:{{ c.other_handle }} as the same person and attach it to this artist?{% endif %}">{{ csrf() }}
        <button class="ok">{{ 'merge' if c.other_artist_id else 'attach' }}</button></form></td>
 </tr>{% else %}<tr><td colspan="7" class="muted">none</td></tr>{% endfor %}</table>
 
@@ -372,7 +375,7 @@ puts an artist back in the directory and permanently exempts them from auto-demo
       <span class="muted">{{ a.display_name }}</span></td>
   <td>{{ "{:,}".format(a.followers) if a.followers else "—" }}</td>
   <td>{{ m.bio(a.bio) }}</td>
-  <td><form class="inline" method="post" action="{{ url_for('restore', artist_id=a.id) }}">
+  <td><form class="inline" method="post" action="{{ url_for('restore', artist_id=a.id) }}">{{ csrf() }}
       <button class="ok">Restore</button></form></td>
 </tr>{% endfor %}</table>
 {% endblock %}""",
@@ -514,12 +517,12 @@ Solid boxes are accounts we've verified; a dashed box is the account being judge
 {% endblock %}""",
 
 "review.html": """{% extends "base.html" %}{% import "_macros.html" as m %}{% block content %}
-{% macro decide_buttons(item) %}
+{% macro decide_buttons(item, ok='Approve', no='Reject') %}
   <label class="muted"><input type="checkbox" name="items" value="{{ item.id }}" form="bulk"> select</label>
-  <form class="inline" method="post" action="{{ url_for('decide', item_id=item.id, decision='approve') }}"><button class="ok">Approve</button></form>
-  <form class="inline" method="post" action="{{ url_for('decide', item_id=item.id, decision='reject') }}"><button class="no">Reject</button></form>
+  <form class="inline" method="post" action="{{ url_for('decide', item_id=item.id, decision='approve') }}">{{ csrf() }}<button class="ok">{{ ok }}</button></form>
+  <form class="inline" method="post" action="{{ url_for('decide', item_id=item.id, decision='reject') }}">{{ csrf() }}<button class="no">{{ no }}</button></form>
 {% endmacro %}
-<form id="bulk" method="post" action="{{ url_for('bulk_decide') }}"></form>
+<form id="bulk" method="post" action="{{ url_for('bulk_decide') }}">{{ csrf() }}</form>
 <div class="card" style="position:sticky;top:0;z-index:5">
   <button type="button" onclick="document.querySelectorAll('input[name=items]').forEach(c=>c.checked=true)">Select all</button>
   <button type="button" onclick="document.querySelectorAll('input[name=items]').forEach(c=>c.checked=false)">Clear</button>
@@ -555,13 +558,19 @@ Solid boxes are accounts we've verified; a dashed box is the account being judge
 {% if not anomaly_items %}<p class="muted">Nothing looks off.</p>{% endif %}
 {% for item in anomaly_items %}
 <div class="card">
+  {% if item.payload.type == 'anomaly' %}
   <b>#{{ item.id }}</b> ⚠️
   <a href="{{ url_for('artist', artist_id=item.payload.artist_id) }}"><b>{{ item.payload.public_slug }}</b></a>
   — link graph looks like a credits/projects page:
   {% for k, v in item.payload.reasons.items() %}<span class="chip badge-nsfw">{{ k }}: {{ v }}</span>{% endfor %}
-  <p class="muted">Inspect the artist page; detach anything wrong there.
-  Approve = looks fine as-is; Reject = dismissed.</p>
-  {{ decide_buttons(item) }}
+  <p class="muted">Inspect the artist page; detach anything wrong there.</p>
+  {% else %}
+  <b>#{{ item.id }} · {{ item.payload.type or 'flag' }}</b> ⚠️
+  <pre>{{ item.payload }}</pre>
+  {% endif %}
+  <p class="muted">Acknowledge = reviewed, looks fine as-is; Dismiss = not
+  worth tracking. Neither performs any structural change.</p>
+  {{ decide_buttons(item, ok='Acknowledge', no='Dismiss') }}
 </div>
 {% endfor %}
 
@@ -702,6 +711,36 @@ app.jinja_env.globals["qs_with"] = qs_with
 app.jinja_env.globals["img_src"] = img_src
 app.jinja_env.globals["acc_label"] = account_label
 
+# CSRF: binding to 127.0.0.1 does not stop a malicious page in the same
+# browser from POSTing here. Every mutating form carries a per-process token
+# ({{ csrf() }}); a POST without it is rejected. Restarting the server
+# invalidates open pages — reload and resubmit.
+_CSRF_TOKEN = secrets.token_hex(16)
+app.jinja_env.globals["csrf"] = lambda: Markup(
+    f'<input type="hidden" name="_csrf" value="{_CSRF_TOKEN}">')
+
+# Short-TTL cache for per-request-invariant aggregates (index stats, facet
+# option lists). Cleared on any accepted POST so admin actions show instantly.
+_CACHE: dict = {}
+_CACHE_TTL = 60
+
+
+def cached(key, fn):
+    hit = _CACHE.get(key)
+    if hit and time.time() - hit[0] < _CACHE_TTL:
+        return hit[1]
+    val = fn()
+    _CACHE[key] = (time.time(), val)
+    return val
+
+
+@app.before_request
+def _csrf_protect():
+    if request.method == "POST":
+        if not secrets.compare_digest(request.form.get("_csrf", ""), _CSRF_TOKEN):
+            abort(403)
+        _CACHE.clear()
+
 
 @app.route("/img")
 def img_proxy():
@@ -715,9 +754,13 @@ def img_proxy():
     if host not in PROXY_HOSTS:
         return ("", 400)
     try:
-        r = httpx.get(url, timeout=10, follow_redirects=True,
+        # No redirect following: the whitelist checks only the first hop, so a
+        # 3xx could otherwise bounce the proxy to an arbitrary (internal) URL.
+        r = httpx.get(url, timeout=10, follow_redirects=False,
                       headers={"Referer": "https://www.pixiv.net/",
                                "User-Agent": "Mozilla/5.0"})
+        if r.status_code >= 300:
+            return ("", 502)
     except httpx.HTTPError:
         return ("", 502)
     return Response(r.content,
@@ -792,18 +835,20 @@ def index():
             {base}
             order by {SORT_COLUMNS[sort]} {direction} nulls last, de.public_slug asc
             limit %(lim)s offset %(off)s""", params)
-        stats = q(conn, """
+        # Filter-independent aggregates — cached (60s TTL, cleared on POST)
+        # so every sort/filter/page click doesn't rescan the publish view.
+        stats = cached("index_stats", lambda: q(conn, """
             select (select count(*) from directory_entries) as artists,
                    (select count(*) from directory_entries where no_ai_attested) as badged,
                    (select count(*) from directory_entries where nsfw) as nsfw,
                    (select count(*) from accounts) as accounts,
-                   (select count(distinct artist_id) from suppressions where lifted_at is null) as suppressed""")[0]
-        platform_options = [r["p"] for r in q(conn, """
+                   (select count(distinct artist_id) from suppressions where lifted_at is null) as suppressed""")[0])
+        platform_options = cached("platform_options", lambda: [r["p"] for r in q(conn, """
             select distinct el->>'platform' as p
             from directory_entries de, jsonb_array_elements(de.accounts) el
-            where el->>'platform' is not null order by 1""")]
-        lang_options = [r["language"] for r in q(conn,
-            "select distinct language from directory_entries order by 1")]
+            where el->>'platform' is not null order by 1""")])
+        lang_options = cached("lang_options", lambda: [r["language"] for r in q(conn,
+            "select distinct language from directory_entries order by 1")])
         return render_template("index.html", artists=artists, stats=stats, q=query,
                                sort=sort, dir=direction, sel_platforms=sel_platforms,
                                sel_langs=sel_langs, sel_flags=sel_flags, flag_labels=FLAG_LABELS,
@@ -1107,76 +1152,103 @@ def unsuppress(artist_id):
     return redirect(url_for("artist", artist_id=artist_id))
 
 
-def _enrich(conn, item):
-    payload = item["payload"]
-    ctx = {}
-    if item["kind"] == "one_directional_attach":
-        src = q(conn, """select a.handle::text as handle, ar.public_slug, ar.id as artist_id
-                         from accounts a
-                         join artist_accounts aa on aa.account_id = a.id and aa.removed_at is null
-                         join artists ar on ar.id = aa.artist_id
-                         where a.id = %s""", (payload["source_account_id"],))
-        # Live values — the payload snapshot goes stale (targets get hydrated
-        # after the item was created).
-        tgt = q(conn, """select a.handle::text as handle, a.followers_count, p.slug as platform
-                         from accounts a join platforms p on p.id = a.platform_id
-                         where a.id = %s""", (payload["target_account_id"],))
-        edge = q(conn, """select evidence_type, evidence_url, matched_text
-                          from identity_edges where id = %s""", (payload["edge_id"],))
-        if src and tgt:
-            ctx = {"artist_id": src[0]["artist_id"], "artist_slug": src[0]["public_slug"],
-                   "source_handle": src[0]["handle"], "target_handle": tgt[0]["handle"],
-                   "target_platform": tgt[0]["platform"],
-                   "target_followers": tgt[0]["followers_count"],
-                   "evidence_type": edge[0]["evidence_type"] if edge else None,
-                   "matched_text": edge[0]["matched_text"] if edge else None,
-                   "evidence_url": edge[0]["evidence_url"] if edge else None,
-                   "reason": payload.get("reason") or payload.get("evidence")}
-    elif item["kind"] == "cluster_merge":
-        ids = json.loads(payload["artist_ids"])
-        artists = q(conn, """
-            select ar.id, ar.public_slug,
-                   (select max(a.followers_count) from artist_accounts aa
-                    join accounts a on a.id = aa.account_id
-                    where aa.artist_id = ar.id and aa.removed_at is null) as followers
-            from artists ar where ar.id = any(%s) order by ar.id""", (ids,))
-        # WHAT connects them: every present edge whose endpoints sit in
-        # different artists of this pair.
-        evidence = q(conn, """
-            select e.evidence_type, e.claim, e.evidence_url, e.matched_text,
-                   sa.handle::text as src_handle, sp.slug as src_platform,
-                   ta.handle::text as tgt_handle, tp.slug as tgt_platform
-            from identity_edges e
-            join artist_accounts saa on saa.account_id = e.source_account_id
-                 and saa.removed_at is null and saa.artist_id = any(%(ids)s)
-            join artist_accounts taa on taa.account_id = e.target_account_id
-                 and taa.removed_at is null and taa.artist_id = any(%(ids)s)
-            join accounts sa on sa.id = e.source_account_id
-            join platforms sp on sp.id = sa.platform_id
-            join accounts ta on ta.id = e.target_account_id
-            join platforms tp on tp.id = ta.platform_id
-            where e.status = 'present' and saa.artist_id <> taa.artist_id
-            limit 8""", {"ids": ids})
-        ctx = {"artists": artists, "evidence": evidence,
-               "keeper_slug": artists[0]["public_slug"] if artists else "?"}
-    elif item["kind"] == "singleton_gate":
-        bio = q(conn, """select bio_text from account_snapshots
-                         where account_id = %s order by captured_at desc limit 1""",
-                (payload["account_id"],))
-        ctx = {"bio": bio[0]["bio_text"] if bio else None}
-    item["ctx"] = ctx
-    return item
+def _enrich_all(conn, items):
+    """Attach display context to pending items with one batched lookup per
+    entity type (was 2-4 SELECTs per item — N+1 on every queue load)."""
+    attach = [i for i in items if i["kind"] == "one_directional_attach"]
+    merges = [i for i in items if i["kind"] == "cluster_merge"]
+    gates = [i for i in items if i["kind"] == "singleton_gate"]
+
+    acc_ids = ({i["payload"]["source_account_id"] for i in attach}
+               | {i["payload"]["target_account_id"] for i in attach})
+    # Live values — the payload snapshot goes stale (targets get hydrated
+    # after the item was created).
+    accounts = {r["id"]: r for r in q(conn, """
+        select a.id, a.handle::text as handle, a.followers_count, p.slug as platform
+        from accounts a join platforms p on p.id = a.platform_id
+        where a.id = any(%s)""", (list(acc_ids),))} if acc_ids else {}
+    src_artists = {r["account_id"]: r for r in q(conn, """
+        select aa.account_id, ar.public_slug, ar.id as artist_id
+        from artist_accounts aa join artists ar on ar.id = aa.artist_id
+        where aa.removed_at is null and aa.account_id = any(%s)""",
+        (list({i["payload"]["source_account_id"] for i in attach}),))} if attach else {}
+    edges = {r["id"]: r for r in q(conn, """
+        select id, evidence_type, evidence_url, matched_text
+        from identity_edges where id = any(%s)""",
+        (list({i["payload"]["edge_id"] for i in attach}),))} if attach else {}
+
+    merge_ids = sorted({aid for i in merges
+                        for aid in json.loads(i["payload"]["artist_ids"])})
+    merge_artist = {r["id"]: r for r in q(conn, """
+        select ar.id, ar.public_slug,
+               (select max(a.followers_count) from artist_accounts aa
+                join accounts a on a.id = aa.account_id
+                where aa.artist_id = ar.id and aa.removed_at is null) as followers
+        from artists ar where ar.id = any(%s)""", (merge_ids,))} if merges else {}
+
+    bios = {r["account_id"]: r["bio_text"] for r in q(conn, """
+        select distinct on (account_id) account_id, bio_text
+        from account_snapshots where account_id = any(%s)
+        order by account_id, captured_at desc""",
+        ([i["payload"]["account_id"] for i in gates],))} if gates else {}
+
+    for item in items:
+        payload = item["payload"]
+        ctx = {}
+        if item["kind"] == "one_directional_attach":
+            src = src_artists.get(payload["source_account_id"])
+            src_acc = accounts.get(payload["source_account_id"])
+            tgt = accounts.get(payload["target_account_id"])
+            edge = edges.get(payload["edge_id"])
+            if src and tgt:
+                ctx = {"artist_id": src["artist_id"], "artist_slug": src["public_slug"],
+                       "source_handle": src_acc["handle"] if src_acc else None,
+                       "target_handle": tgt["handle"],
+                       "target_platform": tgt["platform"],
+                       "target_followers": tgt["followers_count"],
+                       "evidence_type": edge["evidence_type"] if edge else None,
+                       "matched_text": edge["matched_text"] if edge else None,
+                       "evidence_url": edge["evidence_url"] if edge else None,
+                       "reason": payload.get("reason") or payload.get("evidence")}
+        elif item["kind"] == "cluster_merge":
+            ids = json.loads(payload["artist_ids"])
+            artists = [merge_artist[a] for a in sorted(ids) if a in merge_artist]
+            # WHAT connects them: every present edge whose endpoints sit in
+            # different artists of this pair (pair-scoped, stays per-item).
+            evidence = q(conn, """
+                select e.evidence_type, e.claim, e.evidence_url, e.matched_text,
+                       sa.handle::text as src_handle, sp.slug as src_platform,
+                       ta.handle::text as tgt_handle, tp.slug as tgt_platform
+                from identity_edges e
+                join artist_accounts saa on saa.account_id = e.source_account_id
+                     and saa.removed_at is null and saa.artist_id = any(%(ids)s)
+                join artist_accounts taa on taa.account_id = e.target_account_id
+                     and taa.removed_at is null and taa.artist_id = any(%(ids)s)
+                join accounts sa on sa.id = e.source_account_id
+                join platforms sp on sp.id = sa.platform_id
+                join accounts ta on ta.id = e.target_account_id
+                join platforms tp on tp.id = ta.platform_id
+                where e.status = 'present' and saa.artist_id <> taa.artist_id
+                limit 8""", {"ids": ids})
+            ctx = {"artists": artists, "evidence": evidence,
+                   "keeper_slug": artists[0]["public_slug"] if artists else "?"}
+        elif item["kind"] == "singleton_gate":
+            ctx = {"bio": bios.get(payload["account_id"])}
+        item["ctx"] = ctx
+    return items
 
 
 @app.route("/review")
 def review():
     with db.connect() as conn:
-        items = [_enrich(conn, i) for i in
-                 q(conn, "select * from review_items where status = 'pending' order by created_at")]
-        merge_items = [i for i in items if i["kind"] == "cluster_merge"
-                       or (i["kind"] == "other" and i["payload"].get("type") != "anomaly")]
-        anomaly_items = [i for i in items
-                         if i["kind"] == "other" and i["payload"].get("type") == "anomaly"]
+        items = _enrich_all(conn, q(
+            conn, "select * from review_items where status = 'pending' order by created_at"))
+        merge_items = [i for i in items if i["kind"] == "cluster_merge"]
+        # ALL 'other' items (anomalies + giant components) are informational:
+        # nothing structural happens on decision, so they live in the anomaly
+        # section with acknowledge/dismiss wording, never an "Approve" that
+        # reads like it merges something.
+        anomaly_items = [i for i in items if i["kind"] == "other"]
         attach_items = [i for i in items if i["kind"] not in ("cluster_merge", "other")]
         return render_template("review.html", merge_items=merge_items,
                                anomaly_items=anomaly_items,
@@ -1218,7 +1290,13 @@ def _approve(conn, item):
             from .cluster import merge_artists
 
             ids = sorted(json.loads(payload["artist_ids"]))
-            merge_artists(conn, ids[0], ids[1:], actor="admin:review-ui")
+            live = [r["id"] for r in q(conn, """
+                select id from artists
+                where id = any(%s) and merged_into is null""", (ids,))]
+            # Fewer than two live artists left: the pair already merged (or
+            # collapsed) some other way — resolving the item is all that's left.
+            if len(live) >= 2:
+                merge_artists(conn, live[0], live[1:], actor="admin:review-ui")
 
 
 def _decide_one(conn, item_id: int, decision: str) -> None:
