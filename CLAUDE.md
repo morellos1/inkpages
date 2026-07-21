@@ -31,14 +31,20 @@ rationale: `docs/schema.md` and `docs/pipeline.md`.
 - **Not built yet**: stratified ranking runs, Bluesky list/starter-pack
   expansion, Graphtreon/Patreon, ArtStation/Cara/DeviantArt/Tumblr, the public
   site.
-- Review queue: **34 pending** — 12 `cluster_merge` + 22 anomalies/other.
+- Review queue: **33 pending** — 11 `cluster_merge` + 22 anomalies/other.
   Artist-level cyclical references now auto-merge (see clustering model), which
-  drained 10 of the old 21 merge conflicts.
+  drained 10 of the old 21 merge conflicts. **99 more unresolved same-person
+  claims across 74 artists** are now visible+attachable on artist pages (see
+  Review UI) — mostly `no X/bsky` profiles whose linked X already belongs to
+  another artist; clear them by browsing, not just via the queue.
 - **Next up (in priority order):**
-  1. **Work the 12 `cluster_merge` + 22 anomaly reviews** in the review UI.
+  1. **Work the 74 artists with unresolved same-person claims** (attach/merge
+     from artist pages) + the 11 `cluster_merge` + 22 anomaly reviews.
   2. **Bluesky list/starter-pack expansion** (free discovery breadth).
   3. Consider deeper tag-search harvests (more pages, more tags, e.g.
      `オリジナル10000users入り` as a curated tier) — each round is ~free.
+- **Verify-against-live reminder**: the pane blanks on long scrolls; prefer
+  `get_page_text` / SQL over screenshots for tall pages.
 - **Verification cull**: Twitter/Bluesky accounts under 50 followers set to
   account status `hidden` (migration 0016); reversible with
   `update accounts set status='active' where status='hidden'`.
@@ -101,14 +107,32 @@ skeb/pixiv authoritative vs bio-attested; language), **sortable columns +
 pagination**, id-slug pixiv artists shown by name with a `no X/bsky` flag chip,
 per-artist
 evidence pages with per-account **detach** and per-connection **confirm** (the
-inverse of detach — vouch a `related` connection is same-person: merges the
-other artist in or attaches the floating account, and promotes the edge to
-`same_person`), review queue (merges / anomalies / attaches, bulk select),
+inverse of detach — vouch a connection is same-person: merges the other artist
+in or attaches the floating account, and promotes the edge to `same_person`;
+a manual merge also auto-resolves any pending `cluster_merge` for the pair),
+review queue (merges / anomalies / attaches, bulk select),
 demoted page, suppress/unsuppress. pixiv/youtube accounts are labelled by
 `display_name` (id kept as handle/native_id). Hotlink-protected pixiv avatars
 (`i.pximg.net`) are served through a host-whitelisted `/img` referer proxy.
 Collapsible long bios. Connections already members of the artist are hidden
 (that link is internal to a merge, not an external connection).
+
+The **Connections** table shows `related` edges AND **unresolved
+`same_person` claims** — a same-person edge whose target is a NON-member (it
+belongs to another artist, or a guard held it back). These were previously
+invisible outside the review queue (the load-bearing bug behind "pixiv links
+an X but it doesn't even show as a connection"). Each row shows the target's
+owning artist (if any); the button is **merge** (target belongs to another
+artist) or **attach** (floating). All confirmations use an in-page `<dialog>`
+modal, not `confirm()` (base template intercepts `form[data-confirm]` /
+`button[data-confirm]`, submitter-aware for bulk decisions).
+
+Two explainer pages (nav-linked, plain-language + visual, for someone new to
+the project): **/sources** (4-step Discover→Enrich→Cluster→Publish flow +
+per-source volume bars from `SOURCE_META`, primary vs follow-on, cost/rule
+chips) and **/rules** (card grid of every merge/guard/never rule as
+node-and-arrow mini-diagrams with live counts pulled from the DB). Keep
+`SOURCE_META` in sync when adding a `discovered_via`.
 
 ## Clustering model — the load-bearing logic (`cluster.py`)
 
