@@ -16,7 +16,7 @@ from collections import Counter
 from . import db
 from .bluesky import Bluesky
 from .extract import (BSKY_NSFW_SELF_LABELS, find_attestations,
-                      find_nsfw_flags, find_platform_links)
+                      find_mentions, find_nsfw_flags, find_platform_links)
 
 
 def collect_actors(bsky: Bluesky, args) -> dict[str, dict]:
@@ -125,6 +125,27 @@ def process_profile(conn, platforms: dict[str, int], profile: dict,
         )
         stats["edges"] += 1
 
+    # @mentions: alt-account claims cluster; related accounts (partner, pfp
+    # artist, bare mentions) are recorded but never merge.
+    for mention in find_mentions(bio, "bluesky"):
+        target_id = db.get_or_create_account(
+            conn, platforms["bluesky"],
+            handle=mention.handle,
+            profile_url=f"https://bsky.app/profile/{mention.handle}",
+            discovered_via="bio_mention",
+            discovery_details={"source_account_id": account_id},
+        )
+        db.upsert_edge(
+            conn, account_id, target_id,
+            evidence_type="bio_mention",
+            evidence_snapshot_id=snapshot_id,
+            evidence_url=None,
+            matched_text=mention.matched_text,
+            claim=mention.claim,
+            relation_hint=mention.relation_hint,
+        )
+        stats[f"mentions_{mention.claim}"] += 1
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -138,6 +159,8 @@ def main() -> None:
                         help="discover popular feeds matching this query")
     parser.add_argument("--bootstrap-top", type=int, default=2)
     parser.add_argument("--posts-per-feed", type=int, default=100)
+    parser.add_argument("--no-activity", action="store_true",
+                        help="skip per-account last-post lookups")
     args = parser.parse_args()
 
     if not (args.feed or args.starter_pack or args.list or args.bootstrap_query):
@@ -156,6 +179,21 @@ def main() -> None:
             meta = actors[profile["did"]]
             process_profile(conn, platforms, profile, meta["via"], meta["details"], stats)
         conn.commit()
+
+        if not args.no_activity:
+            from datetime import datetime
+
+            with conn.cursor() as cur:
+                for profile in profiles:
+                    if ts := bsky.last_post_time(profile["did"]):
+                        cur.execute(
+                            """update accounts set last_post_at = %s
+                               where platform_id = %s and native_id = %s""",
+                            (datetime.fromisoformat(ts.replace("Z", "+00:00")),
+                             platforms["bluesky"], profile["did"]),
+                        )
+                        stats["activity_updated"] += 1
+            conn.commit()
 
         for endpoint, units in sorted(bsky.calls.items()):
             db.log_api_usage(conn, "bluesky", endpoint, units, 0)

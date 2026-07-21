@@ -79,6 +79,19 @@ class Bluesky:
                 break
         return list(members.values())
 
+    def last_post_time(self, did: str) -> str | None:
+        """indexedAt of the newest post or repost on the author's feed."""
+        try:
+            page = self._get("app.bsky.feed.getAuthorFeed", actor=did, limit=1)
+        except httpx.HTTPStatusError:
+            return None
+        items = page.get("feed", [])
+        if not items:
+            return None
+        item = items[0]
+        reason = item.get("reason") or {}
+        return reason.get("indexedAt") or item.get("post", {}).get("indexedAt")
+
     def get_profiles(self, dids: list[str]) -> list[dict]:
         profiles = []
         for i in range(0, len(dids), 25):

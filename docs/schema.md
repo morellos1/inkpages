@@ -49,7 +49,7 @@ attestations/suppressions) is the only publish surface, and
 | `platforms` | Seeded lookup with per-platform policy (`display_only`, kind incl. `link_hub`) |
 | `accounts` | One row per (platform, native identity); handles are mutable, `native_id` is truth |
 | `account_snapshots` | Append-only hydration observations; all extraction re-runs from these |
-| `identity_edges` | Directed artist-published identity claims with evidence snapshot FKs |
+| `identity_edges` | Directed artist-published claims with evidence snapshot FKs; `claim` separates `same_person` (clusters) from `related` (partner/pfp-artist/bare mention — graph only, never merges) |
 | `discovery_hints` | Quarantined third-party assertions (boorus etc.), pending verification |
 | `artists` | Stable public entities (slug, region, status, `merged_into` pointer) |
 | `artist_accounts` | Cluster membership with confidence tier and open/closed history |

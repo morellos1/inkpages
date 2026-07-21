@@ -8,15 +8,21 @@ import psycopg
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def database_url() -> str:
-    if url := os.environ.get("DATABASE_URL"):
-        return url
+def env_var(name: str) -> str | None:
+    if value := os.environ.get(name):
+        return value
     env_file = ROOT / ".env"
     if env_file.exists():
         for line in env_file.read_text().splitlines():
             line = line.strip()
-            if line.startswith("DATABASE_URL="):
-                return line.split("=", 1)[1]
+            if line.startswith(f"{name}="):
+                return line.split("=", 1)[1] or None
+    return None
+
+
+def database_url() -> str:
+    if url := env_var("DATABASE_URL"):
+        return url
     sys.exit("DATABASE_URL not set (export it or put it in .env)")
 
 
@@ -43,31 +49,53 @@ def get_or_create_account(
     discovered_via: str,
     discovery_details: dict | None = None,
     hydrated: bool = False,
+    last_post_at=None,
 ) -> int:
     """Upsert an account. First discovery wins for discovered_via; profile
-    fields refresh on re-hydration. Falls back to handle matching so a
-    handle-only row later gains its native_id instead of duplicating."""
+    fields refresh on re-hydration. A handle-only row (bio-link target) is
+    claimed and given its native_id at hydration instead of duplicating."""
     import json
 
     details = json.dumps(discovery_details) if discovery_details else None
     with conn.cursor() as cur:
         if native_id is not None:
             cur.execute(
+                "select id from accounts where platform_id = %s and native_id = %s",
+                (platform_id, native_id),
+            )
+            row = cur.fetchone()
+            if row is None:
+                cur.execute(
+                    """select id from accounts
+                       where platform_id = %s and handle = %s and native_id is null
+                       limit 1""",
+                    (platform_id, handle),
+                )
+                row = cur.fetchone()
+            if row:
+                cur.execute(
+                    """update accounts
+                       set native_id = %s, handle = %s,
+                           display_name = coalesce(%s, display_name),
+                           profile_url = coalesce(%s, profile_url),
+                           status = %s,
+                           followers_count = coalesce(%s, followers_count),
+                           last_post_at = coalesce(%s, last_post_at),
+                           last_hydrated = case when %s then now() else last_hydrated end
+                       where id = %s""",
+                    (native_id, handle, display_name, profile_url, status,
+                     followers_count, last_post_at, hydrated, row[0]),
+                )
+                return row[0]
+            cur.execute(
                 """insert into accounts (platform_id, native_id, handle, display_name,
-                                         profile_url, status, followers_count,
+                                         profile_url, status, followers_count, last_post_at,
                                          discovered_via, discovery_details, last_hydrated)
-                   values (%s, %s, %s, %s, %s, %s, %s, %s, %s,
+                   values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                            case when %s then now() end)
-                   on conflict (platform_id, native_id) where native_id is not null
-                   do update set handle = excluded.handle,
-                                 display_name = coalesce(excluded.display_name, accounts.display_name),
-                                 profile_url = coalesce(excluded.profile_url, accounts.profile_url),
-                                 status = excluded.status,
-                                 followers_count = coalesce(excluded.followers_count, accounts.followers_count),
-                                 last_hydrated = coalesce(excluded.last_hydrated, accounts.last_hydrated)
                    returning id""",
                 (platform_id, native_id, handle, display_name, profile_url,
-                 status, followers_count, discovered_via, details, hydrated),
+                 status, followers_count, last_post_at, discovered_via, details, hydrated),
             )
             return cur.fetchone()[0]
 
@@ -150,21 +178,36 @@ def upsert_content_flag(conn, account_id: int, flag: str, signal: str,
 
 def upsert_edge(conn, source_account_id: int, target_account_id: int, *,
                 evidence_type: str, evidence_snapshot_id: int,
-                evidence_url: str | None, matched_text: str | None) -> None:
+                evidence_url: str | None, matched_text: str | None,
+                claim: str = "same_person", relation_hint: str | None = None) -> None:
     if source_account_id == target_account_id:
         return
     with conn.cursor() as cur:
         cur.execute(
             """insert into identity_edges (source_account_id, target_account_id, evidence_type,
-                                           evidence_snapshot_id, evidence_url, matched_text, last_verified)
-               values (%s, %s, %s, %s, %s, %s, now())
+                                           evidence_snapshot_id, evidence_url, matched_text,
+                                           claim, relation_hint, last_verified)
+               values (%s, %s, %s, %s, %s, %s, %s, %s, now())
                on conflict (source_account_id, target_account_id, evidence_type)
                do update set evidence_snapshot_id = excluded.evidence_snapshot_id,
                              evidence_url = excluded.evidence_url,
                              matched_text = excluded.matched_text,
+                             claim = excluded.claim,
+                             relation_hint = excluded.relation_hint,
                              last_verified = now(), status = 'present'""",
             (source_account_id, target_account_id, evidence_type,
-             evidence_snapshot_id, evidence_url, matched_text),
+             evidence_snapshot_id, evidence_url, matched_text, claim, relation_hint),
+        )
+
+
+def touch_last_post(conn, account_id: int, last_post_at) -> None:
+    if last_post_at is None:
+        return
+    with conn.cursor() as cur:
+        cur.execute(
+            """update accounts set last_post_at = %s
+               where id = %s and (last_post_at is null or last_post_at < %s)""",
+            (last_post_at, account_id, last_post_at),
         )
 
 

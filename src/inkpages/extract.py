@@ -74,6 +74,75 @@ def find_nsfw_flags(text: str | None) -> list[tuple[str, str]]:
 BSKY_NSFW_SELF_LABELS = {"porn", "sexual", "nudity"}
 
 
+# --- shortened links -------------------------------------------------------
+
+_SHORTENER = re.compile(
+    r"(?:https?://)?(?:t\.co|bit\.ly|tinyurl\.com|goo\.gl)/[A-Za-z0-9]+", re.I)
+
+
+def find_short_links(text: str | None) -> list[str]:
+    """Opaque shortener URLs (t.co etc.) that need redirect resolution before
+    they mean anything."""
+    if not text:
+        return []
+    urls = []
+    for m in _SHORTENER.finditer(text):
+        url = m.group(0)
+        urls.append(url if url.startswith("http") else "https://" + url)
+    return list(dict.fromkeys(urls))
+
+
+# --- bio @mentions: alt accounts vs merely-related accounts ---------------
+
+@dataclass(frozen=True)
+class Mention:
+    handle: str
+    claim: str           # 'same_person' | 'related'
+    relation_hint: str | None
+    matched_text: str    # context window, kept as evidence
+
+
+# Tokens that mark a mention as the artist's own other account. Modifiers like
+# "nsfw"/"🔞" alone are not enough — "nsfw alt" clusters, a bare "nsfw @x"
+# does not.
+_ALT_TOKENS = ("alt", "main", "side", "backup", "moved", "sub acc", "subacc",
+               "2nd acc", "second acc", "other acc", "aka", "旧アカ", "サブ垢",
+               "別垢", "本垢", "移転")
+_RELATED_TOKENS = ("pfp", "icon", "banner", "header", "art by", "artist",
+                   "partner", "bf", "gf", "wife", "husband", "friend",
+                   "絵師", "アイコン")
+
+_MENTION_PATTERNS = {
+    "twitter": re.compile(r"(?<![\w.@/])@([A-Za-z0-9_]{2,15})\b"),
+    # Bluesky handles are domains; only match dotted forms to avoid noise.
+    "bluesky": re.compile(r"(?<![\w.@/])@([a-z0-9][a-z0-9-]*(?:\.[a-z0-9-]+)+)", re.I),
+}
+
+
+def find_mentions(text: str | None, platform: str) -> list[Mention]:
+    pattern = _MENTION_PATTERNS.get(platform)
+    if not text or pattern is None:
+        return []
+    found: dict[str, Mention] = {}
+    prev_end = 0
+    for m in pattern.finditer(text):
+        ctx = text[max(prev_end, m.start() - 24):m.end()]
+        prev_end = m.end()
+        ctx_lower = ctx.lower()
+        claim, hint = "related", None
+        for token in _ALT_TOKENS:
+            if token in ctx_lower:
+                claim, hint = "same_person", token
+                break
+        else:
+            for token in _RELATED_TOKENS:
+                if token in ctx_lower:
+                    hint = token
+                    break
+        found.setdefault(m.group(1).lower(), Mention(m.group(1), claim, hint, ctx.strip()))
+    return list(found.values())
+
+
 # --- cross-platform profile links ----------------------------------------
 
 @dataclass(frozen=True)

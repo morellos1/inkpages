@@ -12,6 +12,10 @@
 # accounts, so that is exactly where a lone bio link stops being sufficient.
 REVIEW_FOLLOWER_THRESHOLD = 10_000
 
+# No post/repost within this window => the account is labeled dormant.
+# Mirrored in the directory_entries view (migration 0006) — keep in sync.
+DORMANT_AFTER_DAYS = 180
+
 ROSTER_SOURCES = {
     "bsky_feed",
     "bsky_starter_pack",

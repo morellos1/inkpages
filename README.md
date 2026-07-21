@@ -77,9 +77,21 @@ Browse the directory (badges, 18+ flags, follower ordering), inspect any
 artist's accounts with bio evidence, work the review queue
 (approve/reject attaches and merges), and suppress/unsuppress artists.
 
+### Link crawling & Twitter
+
+```sh
+uv run python -m inkpages.crawl_links --max-hubs 100     # t.co resolution + hub pages (free)
+uv run python -m inkpages.harvest_twitter --max-posts 1000 --top 300   # paid, budget-guarded
+uv run python -m inkpages.hydrate_twitter --limit 200                  # paid, budget-guarded
+```
+
+Paid workers check the `api_usage` ledger against `X_SPEND_CAP_CENTS`
+(default $100) before any call and ledger every request.
+
 ## Status
 
-Schema, Bluesky discovery, extraction (no-AI + NSFW signals), clustering, and
-the local review UI are running. Next: the Twitter column (#PortfolioDay
-harvest + hydration — needs explicit spend approval), hub crawling, region
-classification, ranking.
+Running end to end: Bluesky + Twitter discovery, shortener/hub crawling,
+extraction (no-AI + NSFW signals, alt-vs-related mentions, activity),
+clustering with review queue, and the local review UI. Next: full-scale
+#PortfolioDay harvest, Eastern column (Skeb/Pixiv), region classification,
+ranking.

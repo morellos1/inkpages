@@ -31,6 +31,7 @@ TEMPLATES = {
   .badge-noai { background: #d7f4dd; color: #14532d; font-weight: 600; }
   .badge-nsfw { background: #fde2e2; color: #7f1d1d; font-weight: 600; }
   .badge-suppressed { background: #4b5563; color: #fff; font-weight: 600; }
+  .badge-dormant { background: #e5e7eb; color: #374151; font-weight: 600; }
   .conf-near_proof { color: #14532d; } .conf-strong { color: #92400e; } .conf-weak { color: #7f1d1d; }
   .stats { display: flex; gap: .8rem; flex-wrap: wrap; margin-bottom: 1.2rem; }
   .stat { background: #fff; border: 1px solid #e7e7e7; border-radius: 8px; padding: .6rem 1rem; min-width: 8.5rem; }
@@ -63,15 +64,17 @@ TEMPLATES = {
 <form method="get"><input type="text" name="q" value="{{ q }}" placeholder="search slug / name / handle" autofocus>
 <button class="warn">Search</button></form>
 <p class="muted">{{ artists|length }} shown, ordered by top follower count.</p>
-<table><tr><th>artist</th><th>region</th><th>followers</th><th>accounts</th><th>flags</th></tr>
+<table><tr><th>artist</th><th>region</th><th>followers</th><th>last active</th><th>accounts</th><th>flags</th></tr>
 {% for a in artists %}<tr>
   <td><a href="{{ url_for('artist', artist_id=a.artist_id) }}"><b>{{ a.public_slug }}</b></a><br>
       <span class="muted">{{ a.display_name }}</span></td>
   <td>{{ a.region }}</td>
   <td>{{ "{:,}".format(a.followers) if a.followers else "—" }}</td>
+  <td>{{ a.last_active_at.date() if a.last_active_at else "—" }}</td>
   <td>{% for acc in a.accounts or [] %}<span class="chip">{{ acc.platform }}: {{ acc.handle }}</span>{% endfor %}</td>
   <td>{% if a.no_ai_attested %}<span class="chip badge-noai">no-AI</span>{% endif %}
-      {% if a.nsfw %}<span class="chip badge-nsfw">18+</span>{% endif %}</td>
+      {% if a.nsfw %}<span class="chip badge-nsfw">18+</span>{% endif %}
+      {% if a.dormant %}<span class="chip badge-dormant">dormant</span>{% endif %}</td>
 </tr>{% endfor %}</table>
 {% endblock %}""",
 
@@ -97,15 +100,25 @@ TEMPLATES = {
 </div>
 
 <h2>Accounts</h2>
-<table><tr><th>platform</th><th>handle</th><th>confidence</th><th>followers</th><th>status</th><th>bio (latest snapshot)</th></tr>
+<table><tr><th>platform</th><th>handle</th><th>confidence</th><th>followers</th><th>last post</th><th>status</th><th>bio (latest snapshot)</th></tr>
 {% for acc in accounts %}<tr>
   <td>{{ acc.platform }}{% if acc.display_only %} <span class="muted">(display-only)</span>{% endif %}</td>
   <td>{% if acc.profile_url and not acc.display_only %}<a href="{{ acc.profile_url }}" target="_blank">{{ acc.handle }}</a>{% else %}{{ acc.handle }}{% endif %}</td>
   <td class="conf-{{ acc.confidence }}">{{ acc.confidence }}</td>
   <td>{{ "{:,}".format(acc.followers_count) if acc.followers_count else "—" }}</td>
+  <td>{{ acc.last_post_at.date() if acc.last_post_at else "—" }}</td>
   <td>{{ acc.status }}</td>
   <td>{% if acc.bio %}<div class="bio">{{ acc.bio }}</div>{% endif %}</td>
 </tr>{% endfor %}</table>
+
+<h2>Connections (related, never merged)</h2>
+<table><tr><th>direction</th><th>account</th><th>hint</th><th>evidence</th></tr>
+{% for c in connections %}<tr>
+  <td>{{ c.direction }}</td>
+  <td><span class="chip">{{ c.other_platform }}: {{ c.other_handle }}</span></td>
+  <td>{{ c.relation_hint or "—" }}</td>
+  <td class="muted">{{ c.matched_text or c.evidence_url or "" }}</td>
+</tr>{% else %}<tr><td colspan="4" class="muted">none</td></tr>{% endfor %}</table>
 
 <h2>Signals</h2>
 <table><tr><th>type</th><th>signal</th><th>matched</th><th>account</th><th>first seen</th><th>last seen</th></tr>
@@ -189,7 +202,7 @@ def artist(artist_id):
         artist = q(conn, "select * from artists where id = %s", (artist_id,))[0]
         accounts = q(conn, """
             select a.id, a.handle::text, a.profile_url, a.followers_count, a.status,
-                   aa.confidence, p.slug as platform, p.display_only,
+                   a.last_post_at, aa.confidence, p.slug as platform, p.display_only,
                    (select s.bio_text from account_snapshots s
                     where s.account_id = a.id order by s.captured_at desc limit 1) as bio
             from artist_accounts aa
@@ -197,6 +210,18 @@ def artist(artist_id):
             join platforms p on p.id = a.platform_id
             where aa.artist_id = %s and aa.removed_at is null
             order by a.followers_count desc nulls last""", (artist_id,))
+        connections = q(conn, """
+            select case when e.source_account_id = m.account_id then 'outgoing' else 'incoming' end as direction,
+                   e.relation_hint, e.matched_text, e.evidence_url,
+                   oa.handle::text as other_handle, op.slug as other_platform
+            from identity_edges e
+            join (select account_id from artist_accounts
+                  where artist_id = %s and removed_at is null) m
+              on m.account_id in (e.source_account_id, e.target_account_id)
+            join accounts oa on oa.id = case when e.source_account_id = m.account_id
+                                             then e.target_account_id else e.source_account_id end
+            join platforms op on op.id = oa.platform_id
+            where e.claim = 'related' and e.status = 'present'""", (artist_id,))
         signals = q(conn, """
             select 'attestation' as kind, att.signal, att.matched_text, a.handle::text,
                    att.first_seen, att.last_seen
@@ -215,7 +240,8 @@ def artist(artist_id):
         suppressed_rows = q(conn, """select * from suppressions
                                      where artist_id = %s and lifted_at is null limit 1""", (artist_id,))
         return render_template(
-            "artist.html", artist=artist, accounts=accounts, signals=signals, events=events,
+            "artist.html", artist=artist, accounts=accounts, signals=signals,
+            connections=connections, events=events,
             suppressed=suppressed_rows[0] if suppressed_rows else None,
             badge=any(s["kind"] == "attestation" for s in signals),
             nsfw=any(s["kind"] == "content_flag" for s in signals),

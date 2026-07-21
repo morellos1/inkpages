@@ -21,7 +21,9 @@ from collections import Counter, defaultdict
 
 from . import db, policy
 
-STRONG_EVIDENCE = ("bio_link", "link_hub", "profile_field", "pinned_post")
+# bio_mention same-person claims (e.g. "nsfw alt: @x") count as strong; the
+# claim filter in load_state keeps 'related' mentions out entirely.
+STRONG_EVIDENCE = ("bio_link", "link_hub", "profile_field", "pinned_post", "bio_mention")
 
 
 class UnionFind:
@@ -134,7 +136,8 @@ def load_state(conn):
         accounts = {row["id"]: row for row in cur.fetchall()}
         cur.execute(
             """select id, source_account_id, target_account_id from identity_edges
-               where status = 'present' and evidence_type = any(%s)""",
+               where status = 'present' and claim = 'same_person'
+                 and evidence_type = any(%s)""",
             (list(STRONG_EVIDENCE),),
         )
         edges = cur.fetchall()

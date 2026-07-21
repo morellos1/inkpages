@@ -68,7 +68,7 @@ artist at clustering (stage 5). Edges are required for *multi-account*
 clustering, never for existence. Discovery breadth for this group comes from
 the harvest, Lists, and mention-mining combined.
 
-## Stage 2 — Hint verification
+## Stage 2 — Hint verification + link crawling
 
 For each pending `discovery_hints` row: fetch the **artist's own** bio or hub
 page (respecting per-platform read policy and budget — a Twitter fetch costs
@@ -77,6 +77,14 @@ content confirms the link, write an `identity_edge` with the artist's snapshot
 as evidence. Mark the hint verified/rejected either way; hints older than a
 configured window expire. Instagram is never fetched — hinted Instagram
 handles stay display-only.
+
+`inkpages.crawl_links` extends this to two more artist-published surfaces:
+shortened links (t.co etc.) in stored bios are resolved through their
+redirects, and link-hub pages (Linktree, Carrd, potofu.me, lit.link) are
+fetched so the links *inside* them become `link_hub` edges (hub → target)
+with the crawled page snapshot as evidence. Hub-mediated reciprocity (bio →
+hub, hub → bio) then merges as near-proof at clustering. On Twitter, t.co
+expansion is free — the API returns `expanded_url` in user entities.
 
 ## Stage 3 — Hydration
 
@@ -95,6 +103,16 @@ Batch-fetch profiles for the deduped candidate pool and write
 A pure function of stored snapshots (re-runnable when parsers improve):
 
 - Outbound links in bios/hubs → `identity_edges` (and new candidate accounts).
+- Bio `@mentions` → `bio_mention` edges with a **claim**: alt-account context
+  ("alt", "main", "side", "moved", サブ垢, 本垢…) → `same_person` (can
+  cluster); credit/partner context ("pfp", "art by", "banner", "partner"…) or
+  no context → `related` — recorded bidirectionally in the graph, shown in
+  the review UI, never merged.
+- Activity → `accounts.last_post_at`: Bluesky from the author feed head
+  (free), Twitter decoded from `most_recent_tweet_id`'s snowflake (free with
+  the user read). No activity for `policy.DORMANT_AFTER_DAYS` (180) labels
+  the account, and an artist whose accounts are all quiet, **dormant** in the
+  publish view.
 - No-AI signals → `attestations`: #NoAI variants, AI学習禁止 / AI使用禁止,
   Glaze/Nightshade mentions, Cara/XFolio membership, DeviantArt noai flags,
   Bluesky anti-AI labeler subscriptions. Refresh `last_seen`; deactivate
