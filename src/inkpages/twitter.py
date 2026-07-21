@@ -11,8 +11,9 @@ from datetime import datetime, timezone
 import httpx
 
 from . import db
-from .extract import (find_attestations, find_mentions, find_nsfw_flags,
-                      find_platform_links, find_website_links)
+from .extract import (find_attestations, find_commission_status, find_email,
+                      find_mentions, find_nsfw_flags, find_platform_links,
+                      find_website_links)
 
 BASE = "https://api.x.com/2"
 POST_READ_CENTS = 0.5
@@ -157,6 +158,13 @@ def process_user(conn, platforms: dict, user: dict, via: str, details: dict,
         raw=user, fetch_source="x:" + via,
     )
     stats["snapshots"] += 1
+
+    db.set_contact_email(conn, account_id, find_email(bio))
+    comm = find_commission_status(
+        "\n".join(filter(None, [bio, user.get("name"), user.get("location")])))
+    db.set_commission(conn, account_id, comm, None)
+    if comm:
+        stats["commission_signals"] += 1
 
     for signal, matched in find_attestations(bio):
         db.upsert_attestation(conn, account_id, signal, matched, snapshot_id)

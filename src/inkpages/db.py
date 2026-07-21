@@ -200,6 +200,25 @@ def upsert_edge(conn, source_account_id: int, target_account_id: int, *,
         )
 
 
+def set_contact_email(conn, account_id: int, email: str | None) -> None:
+    with conn.cursor() as cur:
+        cur.execute("update accounts set contact_email = %s where id = %s",
+                    (email, account_id))
+
+
+def set_commission(conn, account_id: int, found, checked_at) -> None:
+    """found is (status, confidence, matched) or None => unknown."""
+    status, confidence, detail = found if found else ("unknown", None, None)
+    with conn.cursor() as cur:
+        cur.execute(
+            """update accounts
+               set commission_status = %s, commission_confidence = %s,
+                   commission_detail = %s, commission_checked_at = coalesce(%s, now())
+               where id = %s""",
+            (status, confidence, detail, checked_at, account_id),
+        )
+
+
 def touch_last_post(conn, account_id: int, last_post_at) -> None:
     if last_post_at is None:
         return

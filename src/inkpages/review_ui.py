@@ -32,6 +32,9 @@ TEMPLATES = {
   .badge-nsfw { background: #fde2e2; color: #7f1d1d; font-weight: 600; }
   .badge-suppressed { background: #4b5563; color: #fff; font-weight: 600; }
   .badge-dormant { background: #e5e7eb; color: #374151; font-weight: 600; }
+  .badge-open { background: #d7f4dd; color: #14532d; font-weight: 600; }
+  .badge-closed { background: #fde2e2; color: #7f1d1d; font-weight: 600; }
+  .badge-waitlist { background: #fef3c7; color: #92400e; font-weight: 600; }
   .conf-near_proof { color: #14532d; } .conf-strong { color: #92400e; } .conf-weak { color: #7f1d1d; }
   .stats { display: flex; gap: .8rem; flex-wrap: wrap; margin-bottom: 1.2rem; }
   .stat { background: #fff; border: 1px solid #e7e7e7; border-radius: 8px; padding: .6rem 1rem; min-width: 8.5rem; }
@@ -49,6 +52,7 @@ TEMPLATES = {
   <a class="brand" href="{{ url_for('index') }}">inkpages review</a>
   <a href="{{ url_for('index') }}">Directory</a>
   <a href="{{ url_for('review') }}">Review queue {% if pending %}<span class="pill">{{ pending }}</span>{% endif %}</a>
+  <a href="{{ url_for('demoted') }}">Demoted {% if demoted_count %}<span class="pill">{{ demoted_count }}</span>{% endif %}</a>
 </header>
 <main>{% block content %}{% endblock %}</main></body></html>""",
 
@@ -74,7 +78,10 @@ TEMPLATES = {
   <td>{% for acc in a.accounts or [] %}<span class="chip">{{ acc.platform }}: {{ acc.handle }}</span>{% endfor %}</td>
   <td>{% if a.no_ai_attested %}<span class="chip badge-noai">no-AI</span>{% endif %}
       {% if a.nsfw %}<span class="chip badge-nsfw">18+</span>{% endif %}
-      {% if a.dormant %}<span class="chip badge-dormant">dormant</span>{% endif %}</td>
+      {% if a.dormant %}<span class="chip badge-dormant">dormant</span>{% endif %}
+      {% if a.commissions %}<span class="chip badge-{{ a.commissions.status }}"
+        title="confidence {{ a.commissions.confidence }}">comms {{ a.commissions.status }}
+        · {{ a.commissions.checked_at[:10] }}</span>{% endif %}</td>
 </tr>{% endfor %}</table>
 {% endblock %}""",
 
@@ -100,14 +107,17 @@ TEMPLATES = {
 </div>
 
 <h2>Accounts</h2>
-<table><tr><th>platform</th><th>handle</th><th>confidence</th><th>followers</th><th>last post</th><th>status</th><th>bio (latest snapshot)</th></tr>
+<table><tr><th>platform</th><th>handle</th><th>confidence</th><th>followers</th><th>last post</th><th>comms</th><th>contact</th><th>bio (latest snapshot)</th></tr>
 {% for acc in accounts %}<tr>
   <td>{{ acc.platform }}{% if acc.display_only %} <span class="muted">(display-only)</span>{% endif %}</td>
   <td>{% if acc.profile_url and not acc.display_only %}<a href="{{ acc.profile_url }}" target="_blank">{{ acc.handle }}</a>{% else %}{{ acc.handle }}{% endif %}</td>
   <td class="conf-{{ acc.confidence }}">{{ acc.confidence }}</td>
   <td>{{ "{:,}".format(acc.followers_count) if acc.followers_count else "—" }}</td>
   <td>{{ acc.last_post_at.date() if acc.last_post_at else "—" }}</td>
-  <td>{{ acc.status }}</td>
+  <td>{% if acc.commission_status != 'unknown' %}<span class="chip badge-{{ acc.commission_status }}"
+        title="{{ acc.commission_detail }}">{{ acc.commission_status }}
+        · {{ acc.commission_checked_at.date() if acc.commission_checked_at }}</span>{% else %}—{% endif %}</td>
+  <td>{{ acc.contact_email or "—" }}</td>
   <td>{% if acc.bio %}<div class="bio">{{ acc.bio }}</div>{% endif %}</td>
 </tr>{% endfor %}</table>
 
@@ -132,6 +142,22 @@ TEMPLATES = {
 <table><tr><th>when</th><th>event</th><th>actor</th><th>details</th></tr>
 {% for e in events %}<tr><td>{{ e.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
 <td>{{ e.event }}</td><td>{{ e.actor }}</td><td class="muted">{{ e.details }}</td></tr>{% endfor %}</table>
+{% endblock %}""",
+
+"demoted.html": """{% extends "base.html" %}{% block content %}
+<h1>Demoted (no artist evidence)</h1>
+<p class="muted">Open-harvest accounts that failed the artist-evidence test. Restore
+puts an artist back in the directory and permanently exempts them from auto-demotion.</p>
+{% if not items %}<p class="muted">Nothing here.</p>{% endif %}
+<table>{% if items %}<tr><th>artist</th><th>followers</th><th>bio</th><th></th></tr>{% endif %}
+{% for a in items %}<tr>
+  <td><a href="{{ url_for('artist', artist_id=a.id) }}"><b>{{ a.public_slug }}</b></a><br>
+      <span class="muted">{{ a.display_name }}</span></td>
+  <td>{{ "{:,}".format(a.followers) if a.followers else "—" }}</td>
+  <td>{% if a.bio %}<div class="bio">{{ a.bio }}</div>{% endif %}</td>
+  <td><form class="inline" method="post" action="{{ url_for('restore', artist_id=a.id) }}">
+      <button class="ok">Restore</button></form></td>
+</tr>{% endfor %}</table>
 {% endblock %}""",
 
 "review.html": """{% extends "base.html" %}{% block content %}
@@ -172,6 +198,10 @@ def pending_count(conn) -> int:
     return q(conn, "select count(*) n from review_items where status = 'pending'")[0]["n"]
 
 
+def demoted_count(conn) -> int:
+    return q(conn, "select count(*) n from artists where status = 'needs_review'")[0]["n"]
+
+
 @app.route("/")
 def index():
     query = request.args.get("q", "").strip()
@@ -193,7 +223,38 @@ def index():
                    (select count(*) from accounts) as accounts,
                    (select count(distinct artist_id) from suppressions where lifted_at is null) as suppressed""")[0]
         return render_template("index.html", artists=artists, stats=stats,
-                               q=query, pending=pending_count(conn))
+                               q=query, pending=pending_count(conn),
+                               demoted_count=demoted_count(conn))
+
+
+@app.route("/demoted")
+def demoted():
+    with db.connect() as conn:
+        items = q(conn, """
+            select ar.id, ar.public_slug, ar.display_name,
+                   (select max(a.followers_count) from artist_accounts aa
+                    join accounts a on a.id = aa.account_id
+                    where aa.artist_id = ar.id and aa.removed_at is null) as followers,
+                   (select s.bio_text from artist_accounts aa
+                    join account_snapshots s on s.account_id = aa.account_id
+                    where aa.artist_id = ar.id and aa.removed_at is null
+                    order by s.captured_at desc limit 1) as bio
+            from artists ar where ar.status = 'needs_review'
+            order by followers desc nulls last""")
+        return render_template("demoted.html", items=items,
+                               pending=pending_count(conn), demoted_count=len(items))
+
+
+@app.route("/artist/<int:artist_id>/restore", methods=["POST"])
+def restore(artist_id):
+    with db.connect() as conn, conn.cursor() as cur:
+        cur.execute("update artists set status = 'active', updated_at = now() where id = %s",
+                    (artist_id,))
+        cur.execute("""insert into artist_events (artist_id, event, actor, details)
+                       values (%s, 'unsuppressed', 'admin:review-ui',
+                               '{"reason": "restored_from_demotion"}')""", (artist_id,))
+        conn.commit()
+    return redirect(url_for("demoted"))
 
 
 @app.route("/artist/<int:artist_id>")
@@ -202,7 +263,9 @@ def artist(artist_id):
         artist = q(conn, "select * from artists where id = %s", (artist_id,))[0]
         accounts = q(conn, """
             select a.id, a.handle::text, a.profile_url, a.followers_count, a.status,
-                   a.last_post_at, aa.confidence, p.slug as platform, p.display_only,
+                   a.last_post_at, a.contact_email, a.commission_status,
+                   a.commission_confidence, a.commission_detail, a.commission_checked_at,
+                   aa.confidence, p.slug as platform, p.display_only,
                    (select s.bio_text from account_snapshots s
                     where s.account_id = a.id order by s.captured_at desc limit 1) as bio
             from artist_accounts aa
@@ -245,7 +308,7 @@ def artist(artist_id):
             suppressed=suppressed_rows[0] if suppressed_rows else None,
             badge=any(s["kind"] == "attestation" for s in signals),
             nsfw=any(s["kind"] == "content_flag" for s in signals),
-            pending=pending_count(conn))
+            pending=pending_count(conn), demoted_count=demoted_count(conn))
 
 
 @app.route("/artist/<int:artist_id>/suppress", methods=["POST"])
@@ -304,7 +367,8 @@ def review():
     with db.connect() as conn:
         items = [_enrich(conn, i) for i in
                  q(conn, "select * from review_items where status = 'pending' order by created_at")]
-        return render_template("review.html", items=items, pending=len(items))
+        return render_template("review.html", items=items, pending=len(items),
+                               demoted_count=demoted_count(conn))
 
 
 def _approve(conn, item):

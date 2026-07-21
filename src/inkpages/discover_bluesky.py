@@ -15,7 +15,8 @@ from collections import Counter
 
 from . import db
 from .bluesky import Bluesky
-from .extract import (BSKY_NSFW_SELF_LABELS, find_attestations, find_mentions,
+from .extract import (BSKY_NSFW_SELF_LABELS, find_attestations,
+                      find_commission_status, find_email, find_mentions,
                       find_nsfw_flags, find_platform_links, find_website_links)
 
 
@@ -89,6 +90,13 @@ def process_profile(conn, platforms: dict[str, int], profile: dict,
         fetch_source="bsky:getProfiles",
     )
     stats["snapshots"] += 1
+
+    db.set_contact_email(conn, account_id, find_email(bio))
+    comm = find_commission_status(
+        "\n".join(filter(None, [bio, profile.get("displayName")])))
+    db.set_commission(conn, account_id, comm, None)
+    if comm:
+        stats["commission_signals"] += 1
 
     for signal, matched in find_attestations(bio):
         db.upsert_attestation(conn, account_id, signal, matched, snapshot_id)

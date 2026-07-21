@@ -20,6 +20,7 @@ import re
 from collections import Counter, defaultdict
 
 from . import db, policy
+from .extract import looks_like_artist
 
 # bio_mention same-person claims (e.g. "nsfw alt: @x") count as strong; the
 # claim filter in load_state keeps 'related' mentions out entirely.
@@ -130,8 +131,12 @@ def load_state(conn):
         cur.execute(
             """select a.id, a.handle::text, a.display_name, a.followers_count,
                       a.discovered_via, a.status, p.slug as platform_slug,
-                      p.kind as platform_kind
-               from accounts a join platforms p on p.id = a.platform_id"""
+                      p.kind as platform_kind, ls.bio_text as latest_bio
+               from accounts a
+               join platforms p on p.id = a.platform_id
+               left join lateral (select s.bio_text from account_snapshots s
+                                  where s.account_id = a.id
+                                  order by s.captured_at desc limit 1) ls on true"""
         )
         accounts = {row["id"]: row for row in cur.fetchall()}
         cur.execute(
@@ -195,15 +200,58 @@ def main() -> None:
 
         # 3. Singletons: roster-sourced accounts with no membership survive on
         # their own — no edges required for existence (docs/pipeline.md stage 5).
+        # Open-harvest arrivals (anyone can post a hashtag) additionally need
+        # artist evidence: an art-flavored bio or their own outbound links.
+        edge_sources = {e["source_account_id"] for e in edges}
+
+        def has_artist_evidence(account) -> bool:
+            if account["discovered_via"] not in policy.HARVEST_NEEDS_EVIDENCE:
+                return True
+            return (account["id"] in edge_sources
+                    or looks_like_artist("\n".join(filter(None, [
+                        account["latest_bio"], account["display_name"]]))))
+
         for account in accounts.values():
             if (account["id"] not in membership
                     and account["discovered_via"] in policy.ROSTER_SOURCES
                     and account["platform_kind"] != "link_hub"
                     and account["status"] in ("active", "unknown")
                     and not db.is_suppressed(conn, account["id"])):
+                if not has_artist_evidence(account):
+                    stats["skipped_no_artist_evidence"] += 1
+                    continue
                 artist_id = create_artist(conn, account)
                 membership[account["id"]] = artist_id
                 stats["singleton_artists"] += 1
+
+        # 3b. Retroactive: demote existing single-account artists from open
+        # harvests that fail the evidence test (never overrides human actions).
+        with conn.cursor() as cur:
+            cur.execute(
+                """select ar.id as artist_id, min(aa.account_id) as account_id
+                   from artists ar
+                   join artist_accounts aa on aa.artist_id = ar.id and aa.removed_at is null
+                   where ar.status = 'active' and ar.merged_into is null
+                     and not exists (select 1 from artist_events e
+                                     where e.artist_id = ar.id and e.actor like 'admin%%')
+                   group by ar.id
+                   having count(*) = 1""")
+            singles = cur.fetchall()
+        for artist_id, account_id in singles:
+            account = accounts.get(account_id)
+            if (account is not None
+                    and account["discovered_via"] in policy.HARVEST_NEEDS_EVIDENCE
+                    and not has_artist_evidence(account)):
+                with conn.cursor() as cur:
+                    cur.execute("update artists set status = 'needs_review', updated_at = now() where id = %s",
+                                (artist_id,))
+                    cur.execute(
+                        """insert into artist_events (artist_id, event, actor, details)
+                           values (%s, 'suppressed', 'pipeline', %s)""",
+                        (artist_id, json.dumps({"reason": "no_artist_evidence",
+                                                "account_id": account_id})),
+                    )
+                stats["demoted_no_artist_evidence"] += 1
 
         # 4. One-directional strong edges: attach targets, or queue for review
         # when the target is prominent (impersonation risk).

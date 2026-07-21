@@ -16,6 +16,12 @@ REVIEW_FOLLOWER_THRESHOLD = 10_000
 # Mirrored in the directory_entries view (migration 0006) — keep in sync.
 DORMANT_AFTER_DAYS = 180
 
+# Open-harvest sources: anyone can post a hashtag, so accounts from these
+# need artist evidence (art-keyword bio or outbound platform links) before a
+# singleton artist is created. Curated rosters (art feeds, creator rankings,
+# lists) are exempt — the source itself is the evidence.
+HARVEST_NEEDS_EVIDENCE = {"portfolioday", "portfolioday_mention"}
+
 ROSTER_SOURCES = {
     "bsky_feed",
     "bsky_starter_pack",

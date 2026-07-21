@@ -92,6 +92,66 @@ def find_short_links(text: str | None) -> list[str]:
     return list(dict.fromkeys(urls))
 
 
+# --- contact emails --------------------------------------------------------
+
+_EMAIL = re.compile(r"[A-Za-z0-9][\w.+-]*@[\w-]+\.[\w.-]+[A-Za-z]")
+
+
+def find_email(text: str | None) -> str | None:
+    if not text:
+        return None
+    m = _EMAIL.search(text)
+    return m.group(0).lower() if m else None
+
+
+# --- commission status -----------------------------------------------------
+
+# (pattern, status, confidence). Confidence reflects how unambiguous the
+# phrasing is; the caller applies a source multiplier (bio > hub page text).
+_COMMISSION_PATTERNS: list[tuple[re.Pattern, str, float]] = [
+    (re.compile(r"comm?(?:ission)?s?\s*(?:status)?\s*(?:are|:|-|–|—)?\s*open", re.I), "open", 0.9),
+    (re.compile(r"open\s+(?:for\s+)?comm?(?:ission)?s", re.I), "open", 0.85),
+    (re.compile(r"taking\s+comm?(?:ission)?s", re.I), "open", 0.8),
+    (re.compile(r"comm?(?:ission)?s?\s*(?:status)?\s*(?:are|:|-|–|—)?\s*closed?\b", re.I), "closed", 0.9),
+    (re.compile(r"closed?\s+(?:for\s+)?comm?(?:ission)?s", re.I), "closed", 0.85),
+    (re.compile(r"not\s+taking\s+comm?(?:ission)?s", re.I), "closed", 0.85),
+    (re.compile(r"comm?(?:ission)?s?\s*(?::|-|–|—)?\s*waitlist", re.I), "waitlist", 0.8),
+    (re.compile(r"依頼\s*受付中|コミッション\s*(?:受付中|募集中)|お仕事(?:依頼)?\s*受付中"), "open", 0.85),
+    (re.compile(r"依頼\s*(?:停止中|受付停止|募集停止)|コミッション\s*(?:停止|休止)中?"), "closed", 0.85),
+    (re.compile(r"skeb\s*(?:募集中|受付中)", re.I), "open", 0.7),
+]
+
+
+def find_commission_status(text: str | None, multiplier: float = 1.0):
+    """Best (status, confidence, matched_text) from text, or None.
+    On open/closed conflicts the closed reading wins at equal confidence —
+    a stale/wrong 'open' is the harmful direction."""
+    if not text:
+        return None
+    best = None
+    for pattern, status, confidence in _COMMISSION_PATTERNS:
+        if m := pattern.search(text):
+            score = confidence * multiplier
+            rank = (score, 1 if status == "closed" else 0)
+            if best is None or rank > best[0]:
+                best = (rank, (status, round(score, 2), m.group(0).strip()))
+    return best[1] if best else None
+
+
+# --- artist-evidence heuristic ---------------------------------------------
+
+# Used to gate singleton-artist creation for accounts that arrived via open
+# harvests (anyone can post a hashtag). Curated rosters are exempt.
+_ARTIST_HINTS = re.compile(
+    r"illustrat|artist|art\b|draw|paint|sketch|doodle|fanart|commission|comm\b|comms\b"
+    r"|oc\b|vtuber|design|animat|pixiv|skeb|vgen|絵|イラスト|絵描き|絵師|落書き|らくがき"
+    r"|お絵描き|依頼|創作|同人", re.IGNORECASE)
+
+
+def looks_like_artist(text: str | None) -> bool:
+    return bool(text and _ARTIST_HINTS.search(text))
+
+
 # --- bio @mentions: alt accounts vs merely-related accounts ---------------
 
 @dataclass(frozen=True)
@@ -190,6 +250,7 @@ _LINK_PATTERNS: list[tuple[str, re.Pattern]] = [
     ("boosty", re.compile(r"boosty\.to/(?P<handle>[A-Za-z0-9_.-]+)", re.I)),
     ("artfight", re.compile(r"artfight\.net/~(?P<handle>[\w.-]+)", re.I)),
     ("biosite", re.compile(r"bio\.site/(?P<handle>[\w.-]+)", re.I)),
+    ("coloso", re.compile(r"coloso\.(?:us|global|jp|co\.kr)/(?:[a-z]{2}/)?(?:products/)?(?P<handle>[\w-]+)", re.I)),
     ("linktree", re.compile(r"linktr\.ee/(?P<handle>[\w.]+)", re.I)),
     ("carrd", re.compile(r"\b(?P<handle>[A-Za-z0-9-]+)\.carrd\.co", re.I)),
     ("potofu", re.compile(r"potofu\.me/(?P<handle>[\w.-]+)", re.I)),
@@ -211,7 +272,7 @@ _PLATFORM_DOMAINS = {
     "mihuashi.com", "youtube.com", "youtu.be", "discord.gg", "discord.com",
     "discordapp.com", "t.me", "telegram.me", "twitch.tv",
     "furaffinity.net", "behance.net", "be.net", "boosty.to", "artfight.net",
-    "bio.site",
+    "bio.site", "coloso.us", "coloso.global", "coloso.jp", "coloso.co.kr",
 }
 # Shorteners (opaque), commerce/utility noise, and booru domains — boorus are
 # hint-only by hard rule and must never enter the graph as artist links.

@@ -183,7 +183,8 @@ only. Published provenance shows artist-published evidence exclusively.
 
 ## Open items before building
 
-- Verify Graphtreon still exists (Patreon rankings source).
+- ~~Verify Graphtreon still exists~~ — confirmed working (user, 2026-07-20);
+  Patreon rankings are a real discovery source.
 - Confirm XFolio profile enumeration mechanics (no public API assumed).
 - Curate the initial set of Bluesky anti-AI labelers and art feeds.
 - Decide the "high-prominence" review threshold for one-directional attaches.

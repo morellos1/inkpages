@@ -16,7 +16,8 @@ from collections import Counter
 from psycopg.rows import dict_row
 
 from . import db
-from .extract import (BSKY_NSFW_SELF_LABELS, find_attestations, find_mentions,
+from .extract import (BSKY_NSFW_SELF_LABELS, find_attestations,
+                      find_commission_status, find_email, find_mentions,
                       find_nsfw_flags, find_platform_links, find_website_links)
 from .twitter import expanded_urls
 
@@ -29,7 +30,8 @@ def latest_snapshots(conn):
         cur.execute(
             """select distinct on (s.account_id)
                       s.account_id, s.id as snapshot_id, s.bio_text, s.raw,
-                      a.handle::text, p.slug as platform, p.id as platform_id
+                      s.captured_at, a.handle::text, a.display_name,
+                      p.slug as platform, p.id as platform_id
                from account_snapshots s
                join accounts a on a.id = s.account_id
                join platforms p on p.id = a.platform_id
@@ -48,6 +50,13 @@ def process(conn, platforms, row, stats) -> list[int]:
     link_text = bio
     if row["platform"] == "twitter":
         link_text = "\n".join([bio, raw.get("location") or ""] + expanded_urls(raw))
+
+    db.set_contact_email(conn, account_id, find_email(bio))
+    comm_text = "\n".join(filter(None, [
+        bio, row["display_name"],
+        raw.get("location") if row["platform"] == "twitter" else None]))
+    db.set_commission(conn, account_id, find_commission_status(comm_text),
+                      row["captured_at"])
 
     link_targets: set[int] = set()
     for link in find_platform_links(link_text) + find_website_links(link_text):

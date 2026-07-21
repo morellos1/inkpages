@@ -16,7 +16,13 @@ import httpx
 from psycopg.rows import dict_row
 
 from . import db
-from .extract import find_platform_links, find_short_links, find_website_links
+import re
+
+from .extract import (find_commission_status, find_email, find_platform_links,
+                      find_short_links, find_website_links)
+
+_TAG_STRIP = re.compile(r"<(?:script|style)[^>]*>.*?</(?:script|style)>|<[^>]+>",
+                        re.IGNORECASE | re.DOTALL)
 
 HUB_PLATFORMS = ("linktree", "carrd", "potofu", "litlink", "biosite")
 # Browser-like headers: Linktree 403s obvious bot UAs while serving the same
@@ -172,6 +178,14 @@ def crawl_hubs(conn, client, platforms, max_hubs, stats):
             fetch_source="hub_crawl",
         )
         stats["hubs_crawled"] += 1
+        # Commission status / contact email announced on the hub page itself
+        # (link titles like "Commissions — OPEN"). Lower confidence than a bio.
+        page_text = _TAG_STRIP.sub(" ", html)
+        if comm := find_commission_status(page_text, multiplier=0.65):
+            db.set_commission(conn, hub["id"], comm, None)
+            stats["hub_commission_signals"] += 1
+        if email := find_email(page_text):
+            db.set_contact_email(conn, hub["id"], email)
         produced: set[int] = set()
         for link in links:
             platform_id = platforms.get(link.platform)
