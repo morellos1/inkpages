@@ -519,18 +519,20 @@ def main() -> None:
                     < policy.REVIEW_FOLLOWER_THRESHOLD
             )
 
-        # Edges the prominence guard flipped to `related` are still directed
-        # same-person claims — demoted only because reciprocity was missing at
-        # the time. Loaded once: step 4 counts them as artist-level back-links,
-        # step 4b re-checks them for shared-hub reciprocity.
+        # Edges the guards flipped to `related` are still directed same-person
+        # claims — demoted only because a condition (missing reciprocity, a
+        # second same-platform account, a full cap) held at the time. Loaded
+        # once: step 4 counts them as artist-level back-links, step 4b
+        # re-checks each against its own original condition.
         from psycopg.rows import dict_row
 
         with conn.cursor(row_factory=dict_row) as fcur:
             fcur.execute(
-                """select id, source_account_id, target_account_id
+                """select id, source_account_id, target_account_id, relation_hint
                    from identity_edges
                    where status = 'present' and claim = 'related'
-                     and relation_hint = 'unreciprocated_prominent'"""
+                     and relation_hint in ('unreciprocated_prominent',
+                                           'secondary_link', 'over_platform_cap')"""
             )
             reflips = fcur.fetchall()
         flipped_out: dict[int, list[tuple[int, int]]] = defaultdict(list)
@@ -699,14 +701,28 @@ def main() -> None:
                 note_attach(src_artist, tgt)
                 stats["members_added"] += 1
 
-        # 4b. Re-evaluate previously flipped prominent connections. Those live
-        # as `related` (so they're absent from load_state's same_person set) and
-        # would otherwise stay stuck forever. Reciprocity can appear later (a hub
-        # gets crawled, the target's own links get extracted); when >=2 of the
-        # artist's distinctive hubs are now shared, attach and restore the edge.
-        # A flipped edge whose endpoints now sit in two different artists is the
-        # cyclical-reference case again (both directions may have been flipped) —
-        # try the artist-level merge first.
+        # 4b. Re-evaluate previously flipped connections. Those live as
+        # `related` (so they're absent from load_state's same_person set) and
+        # would otherwise stay stuck forever. Each hint self-heals against its
+        # own original condition: prominence needs shared-hub reciprocity to
+        # appear (a hub gets crawled, the target's own links get extracted);
+        # secondary_link / over_platform_cap clear when a detach frees the
+        # slot. A flipped edge whose endpoints now sit in two different artists
+        # is the cyclical-reference case again (both directions may have been
+        # flipped) — try the artist-level merge first.
+        def restore_and_attach(edge, src_artist, tgt, confidence, via,
+                               restored_hint, stat_key) -> None:
+            add_member(conn, src_artist, tgt, confidence,
+                       {"via": via, "edge_id": edge["id"]})
+            with conn.cursor() as ecur:
+                ecur.execute(
+                    """update identity_edges set claim = 'same_person',
+                           relation_hint = %s
+                       where id = %s""", (restored_hint, edge["id"]))
+            membership[tgt] = src_artist
+            note_attach(src_artist, tgt)
+            stats[stat_key] += 1
+
         for edge in reflips:
             src, tgt = edge["source_account_id"], edge["target_account_id"]
             src_artist = membership.get(src)
@@ -718,20 +734,32 @@ def main() -> None:
             if (src_artist is None or tgt not in accounts
                     or tgt_artist is not None or tgt in shared_targets):
                 continue
+            if edge["relation_hint"] == "over_platform_cap":
+                # A bio_mention alt claim: only the hard cap blocked it.
+                if cap_ok(src_artist, tgt):
+                    restore_and_attach(edge, src_artist, tgt, "strong",
+                                       "alt_mention", None, "alt_mentions_attached")
+                continue
             if platform_counts[src_artist][accounts[tgt]["platform_slug"]] >= 1:
                 continue  # would be a second same-platform account — stay cautious
-            if (shared_reciprocity(src_artist, tgt) >= policy.RECIPROCITY_SHARED_MIN
-                    and cap_ok(src_artist, tgt)):
-                add_member(conn, src_artist, tgt, "strong",
-                           {"via": "shared_hub_reciprocity", "edge_id": edge["id"]})
-                with conn.cursor() as ecur:
-                    ecur.execute(
-                        """update identity_edges set claim = 'same_person',
-                               relation_hint = 'shared_hub_reciprocity'
-                           where id = %s""", (edge["id"],))
-                membership[tgt] = src_artist
-                note_attach(src_artist, tgt)
-                stats["reciprocity_merged"] += 1
+            if not cap_ok(src_artist, tgt):
+                continue
+            if (accounts[tgt]["followers_count"] or 0) >= policy.REVIEW_FOLLOWER_THRESHOLD:
+                # Prominent target (whatever hint got it flipped): still needs
+                # the shared-hub reciprocity proof against impersonation.
+                if shared_reciprocity(src_artist, tgt) >= policy.RECIPROCITY_SHARED_MIN:
+                    restore_and_attach(edge, src_artist, tgt, "strong",
+                                       "shared_hub_reciprocity",
+                                       "shared_hub_reciprocity",
+                                       "reciprocity_merged")
+            else:
+                # The original blocking condition has cleared (freed cap slot,
+                # or a prominence flag the latest follower count no longer
+                # supports) and the target is not prominent — the plain
+                # one-directional attach that would have happened originally
+                # applies now.
+                restore_and_attach(edge, src_artist, tgt, "strong",
+                                   "one_directional", None, "members_added")
 
         # 5. Anomaly flags: artists whose link graph looks like a credits
         # dump — surfaced for manual review, no automatic action.

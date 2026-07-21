@@ -92,11 +92,13 @@ def process_profile(conn, platforms: dict[str, int], profile: dict,
     stats["snapshots"] += 1
 
     db.set_avatar(conn, account_id, profile.get("avatar"))
-    db.set_contact_email(conn, account_id, find_email(bio))
-    comm = find_commission_status(
-        "\n".join(filter(None, [bio, profile.get("displayName")])))
-    db.set_commission(conn, account_id, comm, None)
-    if comm:
+    # Only write signals the current bio yields — never wipe a known value
+    # with None/unknown because a rephrased bio dropped the marker.
+    if email := find_email(bio):
+        db.set_contact_email(conn, account_id, email)
+    if comm := find_commission_status(
+            "\n".join(filter(None, [bio, profile.get("displayName")]))):
+        db.set_commission(conn, account_id, comm, None)
         stats["commission_signals"] += 1
 
     for signal, matched in find_attestations(bio):

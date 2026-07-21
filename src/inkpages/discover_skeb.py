@@ -151,6 +151,71 @@ def linked_accounts(detail: dict) -> list[tuple[str, str | None, str | None, str
     return out
 
 
+def structured_link_text(detail: dict) -> str:
+    """URLs from the Skeb url field + non-twitter service links. These are
+    profile FIELDS, not bio text — shared with reextract so stored snapshots
+    re-derive the same profile_field edges."""
+    parts = [detail.get("url") or ""]
+    for link in (detail.get("user_service_links") or []):
+        if link.get("provider") != "twitter":  # twitter handled via twitter_uid
+            parts.append(link.get("url") or "")
+    return "\n".join(filter(None, parts))
+
+
+def weak_claim(platform: str) -> tuple[str, str | None]:
+    if platform == "twitter":
+        return "related", "skeb_secondary"
+    if platform == "website":
+        return "related", "website"
+    return "same_person", None
+
+
+def _emit_profile_edge(conn, platforms, account_id, screen_name, snapshot_id,
+                       stats, emitted, platform, native_id, handle, url,
+                       evidence_type, claim, hint) -> None:
+    platform_id = platforms.get(platform)
+    if platform_id is None or not (handle or native_id):
+        return
+    target_id = db.get_or_create_account(
+        conn, platform_id, native_id=native_id,
+        handle=handle or native_id, profile_url=url,
+        discovered_via="bio_link",
+        discovery_details={"source_account_id": account_id, "via": "skeb_profile"},
+    )
+    if target_id in emitted or target_id == account_id:
+        return
+    emitted.add(target_id)
+    db.upsert_edge(conn, account_id, target_id,
+                   evidence_type=evidence_type,
+                   evidence_snapshot_id=snapshot_id,
+                   evidence_url=url or f"https://skeb.jp/@{screen_name}",
+                   matched_text=None, claim=claim, relation_hint=hint)
+    stats[f"edges_{claim}"] += 1
+
+
+def emit_structured_edges(conn, platforms, account_id, screen_name, detail,
+                          snapshot_id, stats) -> set[int]:
+    """profile_field edges from the skeb API detail: OAuth twitter_uid + id
+    fields (linked_accounts, authoritative hints first) then the url field +
+    service links. Structured fields are NOT part of bio_text, so they carry
+    evidence_type=profile_field — reextract re-parses bios and must never
+    retract them (they used to churn every reextract run). Shared with
+    reextract so stored snapshots re-derive identical edges.
+    Returns the emitted target ids (dedupe set: first emission wins)."""
+    emitted: set[int] = set()
+    for platform, native_id, handle, url, hint in linked_accounts(detail):
+        _emit_profile_edge(conn, platforms, account_id, screen_name, snapshot_id,
+                           stats, emitted, platform, native_id, handle, url,
+                           "profile_field", "same_person", hint)
+    text = structured_link_text(detail)
+    for found in find_platform_links(text) + find_website_links(text):
+        claim, hint = weak_claim(found.platform)
+        _emit_profile_edge(conn, platforms, account_id, screen_name, snapshot_id,
+                           stats, emitted, found.platform, found.native_id,
+                           found.handle, found.url, "profile_field", claim, hint)
+    return emitted
+
+
 def process_creator(conn, platforms: dict, detail: dict, rank: int, stats: Counter) -> None:
     screen_name = detail["screen_name"]
     bio = detail.get("description") or ""
@@ -190,7 +255,8 @@ def process_creator(conn, platforms: dict, detail: dict, rank: int, stats: Count
         db.upsert_content_flag(conn, account_id, "nsfw", "platform_flag",
                                "skeb:nsfw_acceptable", snapshot_id)
         stats["nsfw_flags"] += 1
-    db.set_contact_email(conn, account_id, find_email(bio))
+    if email := find_email(bio):
+        db.set_contact_email(conn, account_id, email)
 
     for signal, matched in find_attestations(bio):
         db.upsert_attestation(conn, account_id, signal, matched, snapshot_id)
@@ -205,47 +271,13 @@ def process_creator(conn, platforms: dict, detail: dict, rank: int, stats: Count
     # weaker: the OAuth link IS their twitter, so any OTHER twitter found here
     # is a project/collab and becomes a related connection; generic websites
     # likewise.
-    emitted: set[int] = set()
-
-    def emit(platform, native_id, handle, url, evidence_type, claim, hint):
-        platform_id = platforms.get(platform)
-        if platform_id is None or not (handle or native_id):
-            return
-        target_id = db.get_or_create_account(
-            conn, platform_id, native_id=native_id,
-            handle=handle or native_id, profile_url=url,
-            discovered_via="bio_link",
-            discovery_details={"source_account_id": account_id, "via": "skeb_profile"},
-        )
-        if target_id in emitted or target_id == account_id:
-            return
-        emitted.add(target_id)
-        db.upsert_edge(conn, account_id, target_id,
-                       evidence_type=evidence_type,
-                       evidence_snapshot_id=snapshot_id,
-                       evidence_url=url or f"https://skeb.jp/@{screen_name}",
-                       matched_text=None, claim=claim, relation_hint=hint)
-        stats[f"edges_{claim}"] += 1
-
-    for platform, native_id, handle, url, hint in linked_accounts(detail):
-        emit(platform, native_id, handle, url, "profile_field", "same_person", hint)
-
-    weak: list = []
-    for link in (detail.get("user_service_links") or []):
-        if link.get("provider") == "twitter":
-            continue  # handled via twitter_uid
-        weak += find_platform_links(link.get("url") or "") + find_website_links(link.get("url") or "")
-    for text in filter(None, [detail.get("url"), bio]):
-        weak += find_platform_links(text) + find_website_links(text)
-    for found in weak:
-        if found.platform == "twitter":
-            claim, hint = "related", "skeb_secondary"
-        elif found.platform == "website":
-            claim, hint = "related", "website"
-        else:
-            claim, hint = "same_person", None
-        emit(found.platform, found.native_id, found.handle, found.url,
-             "bio_link", claim, hint)
+    emitted = emit_structured_edges(conn, platforms, account_id, screen_name,
+                                    detail, snapshot_id, stats)
+    for found in find_platform_links(bio or "") + find_website_links(bio or ""):
+        claim, hint = weak_claim(found.platform)
+        _emit_profile_edge(conn, platforms, account_id, screen_name, snapshot_id,
+                           stats, emitted, found.platform, found.native_id,
+                           found.handle, found.url, "bio_link", claim, hint)
 
 
 def main() -> None:

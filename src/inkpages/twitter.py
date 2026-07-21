@@ -192,12 +192,14 @@ def process_user(conn, platforms: dict, user: dict, via: str, details: dict,
     stats["snapshots"] += 1
 
     db.set_avatar(conn, account_id, user.get("profile_image_url"))
-    db.set_contact_email(conn, account_id, find_email(
-        "\n".join(filter(None, [bio, user.get("location")]))))
-    comm = find_commission_status(
-        "\n".join(filter(None, [bio, user.get("name"), user.get("location")])))
-    db.set_commission(conn, account_id, comm, None)
-    if comm:
+    # Only write signals the current bio actually yields — a rephrased bio
+    # must not wipe a previously extracted email/commission value with
+    # None/unknown (same guard as discover_pixiv).
+    if email := find_email("\n".join(filter(None, [bio, user.get("location")]))):
+        db.set_contact_email(conn, account_id, email)
+    if comm := find_commission_status(
+            "\n".join(filter(None, [bio, user.get("name"), user.get("location")]))):
+        db.set_commission(conn, account_id, comm, None)
         stats["commission_signals"] += 1
 
     for signal, matched in find_attestations(bio):

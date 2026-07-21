@@ -170,7 +170,8 @@ def process_user(conn, platforms, pixiv: Pixiv, user_id: str, via: str,
     stats["snapshots"] += 1
 
     db.set_avatar(conn, account_id, body.get("imageBig"))
-    db.set_contact_email(conn, account_id, find_email(bio))
+    if email := find_email(bio):
+        db.set_contact_email(conn, account_id, email)
     region = (body.get("region") or {}).get("region")
     db.set_platform_stats(conn, account_id, {
         "region": region,

@@ -16,6 +16,7 @@ from collections import Counter
 from psycopg.rows import dict_row
 
 from . import db
+from .discover_skeb import emit_structured_edges
 from .extract import (BSKY_NSFW_SELF_LABELS, find_attestations,
                       find_commission_status, find_email, find_mentions,
                       find_nsfw_flags, find_platform_links, find_website_links)
@@ -65,6 +66,15 @@ def process(conn, platforms, row, stats) -> list[int]:
         comm_text = "\n".join(filter(None, [bio, row["display_name"], location]))
         db.set_commission(conn, account_id, find_commission_status(comm_text),
                           row["captured_at"])
+
+    # Skeb structured fields (twitter_uid, id fields, url field, service
+    # links) live in raw, not bio_text — re-derive their profile_field edges
+    # so a bio re-parse never retracts them. Retraction below stays
+    # bio_link-only: other profile_field sources (pixiv social block) are
+    # owned by discovery.
+    if row["platform"] == "skeb":
+        emit_structured_edges(conn, platforms, account_id, row["handle"],
+                              raw, snapshot_id, stats)
 
     link_targets: set[int] = set()
     for link in find_platform_links(link_text) + find_website_links(link_text):

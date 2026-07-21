@@ -23,6 +23,11 @@ from .extract import (find_commission_status, find_email, find_platform_links,
 
 _TAG_STRIP = re.compile(r"<(?:script|style)[^>]*>.*?</(?:script|style)>|<[^>]+>",
                         re.IGNORECASE | re.DOTALL)
+# Attribute/JSON-scoped URL extraction for hub pages: personal-website links
+# only count when they appear as an href or a "url" value, so raw page markup
+# (script sources, CDN assets, og tags in text) can't mint junk accounts.
+_LINKED_URL = re.compile(r"""(?:href\s*=|"url"\s*:)\s*["'](https?://[^"']+)["']""",
+                         re.IGNORECASE)
 
 HUB_PLATFORMS = ("linktree", "carrd", "potofu", "litlink", "biosite")
 # Browser-like headers: Linktree 403s obvious bot UAs while serving the same
@@ -59,9 +64,13 @@ def fetch_page(client: httpx.Client, url: str):
         return None
 
 
-def resolve_url(client: httpx.Client, url: str, cache: dict) -> str | None:
+def resolve_url(conn, client: httpx.Client, url: str, cache: dict) -> str | None:
+    """Resolve a shortener with a cross-run DB cache (resolved_links): a short
+    URL's destination is effectively immutable, so each is fetched exactly
+    once, throttled. Failures aren't cached — retried next run."""
     if url in cache:
         return cache[url]
+    time.sleep(0.4)
     final = None
     try:
         resp = client.head(url, follow_redirects=True, timeout=15)
@@ -73,6 +82,12 @@ def resolve_url(client: httpx.Client, url: str, cache: dict) -> str | None:
         except httpx.HTTPError:
             pass
     cache[url] = final
+    if final:
+        with conn.cursor() as cur:
+            cur.execute(
+                """insert into resolved_links (short_url, final_url)
+                   values (%s, %s) on conflict (short_url) do nothing""",
+                (url, final))
     return final
 
 
@@ -91,10 +106,14 @@ def resolve_shorteners(conn, client, platforms, stats):
                order by s.account_id, s.captured_at desc"""
         )
         rows = cur.fetchall()
-    cache: dict = {}
+    with conn.cursor() as cur:
+        cur.execute("select short_url, final_url from resolved_links")
+        cache: dict = dict(cur.fetchall())
     for row in rows:
+        if db.is_suppressed(conn, row["account_id"]):
+            continue
         for short in find_short_links(row["scan_text"]):
-            final = resolve_url(client, short, cache)
+            final = resolve_url(conn, client, short, cache)
             stats["shorteners_resolved"] += 1
             if not final:
                 stats["shorteners_failed"] += 1
@@ -175,6 +194,13 @@ def crawl_hubs(conn, client, platforms, max_hubs, stats):
                 .replace("&amp;", "&"))
         links = [l for l in find_platform_links(html)
                  if not (l.platform == hub["platform"])]
+        # Personal websites listed on the hub (attribute-scoped; every other
+        # worker extracts them, hubs previously dropped them). More than 5
+        # distinct sites reads as a credits/resources dump — skip those.
+        site_links = find_website_links(
+            "\n".join(dict.fromkeys(m.group(1) for m in _LINKED_URL.finditer(html))))
+        if len(site_links) <= 5:
+            links += site_links
         snapshot_id = db.insert_snapshot(
             conn, hub["id"],
             bio_text="\n".join(sorted({l.url for l in links})) or None,
@@ -203,6 +229,12 @@ def crawl_hubs(conn, client, platforms, max_hubs, stats):
             if platform_id is None:
                 continue
             is_credit_dump = per_platform[link.platform] >= 3
+            if link.platform == "website":
+                claim, hint = "related", "website"
+            elif is_credit_dump:
+                claim, hint = "related", "hub_credits"
+            else:
+                claim, hint = "same_person", None
             target_id = db.get_or_create_account(
                 conn, platform_id,
                 native_id=link.native_id,
@@ -215,8 +247,7 @@ def crawl_hubs(conn, client, platforms, max_hubs, stats):
                            evidence_type="link_hub",
                            evidence_snapshot_id=snapshot_id,
                            evidence_url=link.url, matched_text=None,
-                           claim="related" if is_credit_dump else "same_person",
-                           relation_hint="hub_credits" if is_credit_dump else None)
+                           claim=claim, relation_hint=hint)
             produced.add(target_id)
             stats["edges_related_hub_credits" if is_credit_dump else "edges_from_hubs"] += 1
         # Retract hub edges the fresh crawl no longer reproduces (page edited,
