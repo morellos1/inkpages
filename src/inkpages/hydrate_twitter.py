@@ -55,6 +55,15 @@ def main() -> None:
             print("done:", dict(stats))
             return
         with conn.cursor() as cur:
+            # Never-hydrated accounts that already have a native id (e.g.
+            # Skeb's OAuth-verified twitter_uid) — fetched by stable id.
+            cur.execute(
+                """select native_id from accounts
+                   where platform_id = %s and native_id is not null and last_hydrated is null
+                   order by id limit %s""",
+                (platforms["twitter"], args.limit),
+            )
+            ids = [r[0] for r in cur.fetchall()]
             # bio_mention targets are deliberately excluded: mentions are
             # mostly friends/credits, not worth a paid read until an edge or
             # human says otherwise.
@@ -63,30 +72,37 @@ def main() -> None:
                    where platform_id = %s and native_id is null and last_hydrated is null
                      and status = 'unknown' and discovered_via <> 'bio_mention'
                    order by id limit %s""",
-                (platforms["twitter"], args.limit),
+                (platforms["twitter"], max(args.limit - len(ids), 0)),
             )
             handles = [r[0] for r in cur.fetchall()]
-        if not handles:
+        if not ids and not handles:
             print("nothing to hydrate")
             return
 
-        ensure_budget(conn, len(handles) * USER_READ_CENTS)
-        found, missing = api.users_by(handles)
-        db.log_api_usage(conn, "x_api", "users/by", len(handles),
-                         math.ceil(len(handles) * USER_READ_CENTS))
+        ensure_budget(conn, (len(ids) + len(handles)) * USER_READ_CENTS)
+        found, missing_ids = (api.users_by_ids(ids) if ids else ([], []))
+        found2, missing_handles = (api.users_by(handles) if handles else ([], []))
+        db.log_api_usage(conn, "x_api", "users_by+ids", len(ids) + len(handles),
+                         math.ceil((len(ids) + len(handles)) * USER_READ_CENTS))
         conn.commit()
 
-        for user in found:
+        for user in found + found2:
             process_user(conn, platforms, user, "hydration", {}, stats)
         with conn.cursor() as cur:
-            for handle in missing:
+            for native_id in missing_ids:
+                cur.execute(
+                    """update accounts set status = 'deleted', last_hydrated = now()
+                       where platform_id = %s and native_id = %s""",
+                    (platforms["twitter"], native_id),
+                )
+            for handle in missing_handles:
                 cur.execute(
                     """update accounts set status = 'deleted', last_hydrated = now()
                        where platform_id = %s and handle = %s and native_id is null""",
                     (platforms["twitter"], handle),
                 )
         conn.commit()
-        stats["missing"] = len(missing)
+        stats["missing"] = len(missing_ids) + len(missing_handles)
 
     print("done:", dict(stats))
 

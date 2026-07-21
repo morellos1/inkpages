@@ -46,6 +46,17 @@ ID_FIELDS = {
 }
 NUMERIC_NATIVE = {"pixiv", "fantia", "nijie", "skima", "coconala"}
 
+URL_TEMPLATES = {
+    "pixiv": "https://www.pixiv.net/users/{}",
+    "fanbox": "https://{}.fanbox.cc",
+    "fantia": "https://fantia.jp/fanclubs/{}",
+    "booth": "https://{}.booth.pm",
+    "nijie": "https://nijie.info/members.php?id={}",
+    "skima": "https://skima.jp/profile?id={}",
+    "coconala": "https://coconala.com/users/{}",
+    "patreon": "https://www.patreon.com/{}",
+}
+
 STAT_KEYS = ("received_works_count", "received_nsfw_works_count",
              "complete_rate", "acceptable", "busy", "nsfw_acceptable")
 
@@ -116,12 +127,13 @@ def linked_accounts(detail: dict) -> list[tuple[str, str | None, str | None, str
         if value in (None, "", 0):
             continue
         value = str(value)
+        url = URL_TEMPLATES.get(platform, "").format(value) or None
         if platform in NUMERIC_NATIVE:
-            out.append((platform, value, value, None))
+            out.append((platform, value, value, url))
         elif platform == "youtube" and value.startswith("UC"):
             out.append((platform, value, value, f"https://www.youtube.com/channel/{value}"))
         else:
-            out.append((platform, None, value, None))
+            out.append((platform, None, value, url))
     return out
 
 

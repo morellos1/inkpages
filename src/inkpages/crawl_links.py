@@ -187,10 +187,16 @@ def crawl_hubs(conn, client, platforms, max_hubs, stats):
         if email := find_email(page_text):
             db.set_contact_email(conn, hub["id"], email)
         produced: set[int] = set()
+        # Project-dump heuristic: an artist's own hub links 1–2 accounts per
+        # platform (main + alt). Three or more on the SAME platform means the
+        # page lists collaborations/credits — those become 'related'
+        # connections, never same-person identity claims.
+        per_platform = Counter(l.platform for l in links)
         for link in links:
             platform_id = platforms.get(link.platform)
             if platform_id is None:
                 continue
+            is_credit_dump = per_platform[link.platform] >= 3
             target_id = db.get_or_create_account(
                 conn, platform_id,
                 native_id=link.native_id,
@@ -202,9 +208,11 @@ def crawl_hubs(conn, client, platforms, max_hubs, stats):
             db.upsert_edge(conn, hub["id"], target_id,
                            evidence_type="link_hub",
                            evidence_snapshot_id=snapshot_id,
-                           evidence_url=link.url, matched_text=None)
+                           evidence_url=link.url, matched_text=None,
+                           claim="related" if is_credit_dump else "same_person",
+                           relation_hint="hub_credits" if is_credit_dump else None)
             produced.add(target_id)
-            stats["edges_from_hubs"] += 1
+            stats["edges_related_hub_credits" if is_credit_dump else "edges_from_hubs"] += 1
         # Retract hub edges the fresh crawl no longer reproduces (page edited,
         # or an earlier parser bug produced a bogus target).
         with conn.cursor() as cur:

@@ -214,8 +214,8 @@ def main() -> None:
         for members in components.values():
             artist_ids = {membership[m] for m in members if m in membership}
             if len(artist_ids) > 1:
-                if not pending_review_exists(conn, "cluster_merge", "artist_ids",
-                                             json.dumps(sorted(artist_ids))):
+                if not review_exists(conn, "cluster_merge", "artist_ids",
+                                     json.dumps(sorted(artist_ids))):
                     add_review_item(conn, "cluster_merge", {
                         "artist_ids": json.dumps(sorted(artist_ids)),
                         "account_ids": sorted(members),
@@ -369,10 +369,13 @@ def main() -> None:
             if tgt_artist == src_artist:
                 continue
             if tgt_artist is not None:
-                if not pending_review_exists(conn, "cluster_merge", "edge_id", edge["id"]):
+                # Dedupe by artist PAIR — the same two artists conflicting via
+                # several edges must ask the human exactly once.
+                pair = json.dumps(sorted({src_artist, tgt_artist}))
+                if not review_exists(conn, "cluster_merge", "artist_ids", pair):
                     add_review_item(conn, "cluster_merge", {
                         "edge_id": edge["id"],
-                        "artist_ids": json.dumps(sorted({src_artist, tgt_artist})),
+                        "artist_ids": pair,
                         "account_ids": [src, tgt],
                     }, stats)
                 continue

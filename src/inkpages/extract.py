@@ -94,7 +94,15 @@ def find_short_links(text: str | None) -> list[str]:
 
 # --- contact emails --------------------------------------------------------
 
-_EMAIL = re.compile(r"[A-Za-z0-9][\w.+-]*@[\w-]+\.[\w.-]+[A-Za-z]")
+# TLD-bounded so emails glued to following text ("abc@gmail.comtwitter:…")
+# end at the TLD. Tradeoff: an exotic TLD sharing a listed prefix
+# (.community) truncates — far rarer than glued bio text.
+_EMAIL = re.compile(
+    r"[A-Za-z0-9][\w.+-]*@[\w-]+(?:\.[\w-]+)*?"
+    r"\.(?:co\.jp|ne\.jp|or\.jp|co\.uk|com|net|org|jp|io|me|art|xyz|moe|cc|"
+    r"dev|info|gg|us|uk|ca|de|fr|es|it|nl|br|tw|kr|studio|design|online|"
+    r"site|email|pro|club)",
+    re.IGNORECASE)
 
 
 def find_email(text: str | None) -> str | None:
