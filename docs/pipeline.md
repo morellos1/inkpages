@@ -99,6 +99,11 @@ A pure function of stored snapshots (re-runnable when parsers improve):
   Glaze/Nightshade mentions, Cara/XFolio membership, DeviantArt noai flags,
   Bluesky anti-AI labeler subscriptions. Refresh `last_seen`; deactivate
   signals that disappeared (badges drop, never linger).
+- NSFW/18+ self-signals → `content_flags`: 🔞 / R-18 / NSFW / 18+ / MDNI bio
+  markers (with a negation guard for "no NSFW" / "SFW only") and Bluesky
+  profile self-labels (`porn`/`sexual`/`nudity`). Same model as attestations:
+  the artist's own published signal, displayed as their claim, derived
+  per-artist as the `nsfw` flag in `directory_entries`.
 - Bio language detection → `accounts.bio_langs` (input to region
   classification). Use `lingua` or equivalent — must be reliable on short
   mixed-language bios, especially ja/en.

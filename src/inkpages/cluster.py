@@ -1,0 +1,246 @@
+"""Clustering worker: identity edges -> artist clusters.
+
+Rules (docs/schema.md tradeoffs 3, 5; docs/pipeline.md stage 5):
+- Mutual directed edge pairs (reciprocal bio links) are near-proof and merge
+  automatically via union-find.
+- Roster-sourced accounts with no edges become singleton artists — this keeps
+  high-follower, Twitter-only artists with no external links.
+- A one-directional edge attaches its target at 'strong' confidence, unless
+  the target is prominent (policy.REVIEW_FOLLOWER_THRESHOLD) — those become
+  review_items for a human, since impersonators link *to* famous accounts.
+- Components containing two existing artists are never auto-merged; they
+  become 'cluster_merge' review items.
+- Human decisions are never overridden: memberships closed by a human stay
+  closed, and clustering only ever *adds*.
+
+Usage: uv run python -m inkpages.cluster
+"""
+import json
+import re
+from collections import Counter, defaultdict
+
+from . import db, policy
+
+STRONG_EVIDENCE = ("bio_link", "link_hub", "profile_field", "pinned_post")
+
+
+class UnionFind:
+    def __init__(self):
+        self.parent: dict[int, int] = {}
+
+    def find(self, x: int) -> int:
+        self.parent.setdefault(x, x)
+        while self.parent[x] != x:
+            self.parent[x] = self.parent[self.parent[x]]
+            x = self.parent[x]
+        return x
+
+    def union(self, a: int, b: int) -> None:
+        ra, rb = self.find(a), self.find(b)
+        if ra != rb:
+            self.parent[rb] = ra
+
+
+def slugify(handle: str, platform_slug: str, account_id: int) -> str:
+    base = handle.split(".")[0] if platform_slug == "bluesky" else handle
+    slug = re.sub(r"-+", "-", re.sub(r"[^a-z0-9-]+", "-", base.lower())).strip("-")
+    return slug or f"artist-{account_id}"
+
+
+def unique_slug(cur, slug: str) -> str:
+    candidate, n = slug, 1
+    while True:
+        cur.execute("select 1 from artists where public_slug = %s", (candidate,))
+        if cur.fetchone() is None:
+            return candidate
+        n += 1
+        candidate = f"{slug}-{n}"
+
+
+def create_artist(conn, account: dict, actor: str = "pipeline") -> int:
+    """New artist anchored on one account; membership at near_proof (it is
+    the account itself)."""
+    with conn.cursor() as cur:
+        slug = unique_slug(cur, slugify(account["handle"], account["platform_slug"], account["id"]))
+        cur.execute(
+            """insert into artists (public_slug, display_name, primary_account_id)
+               values (%s, %s, %s) returning id""",
+            (slug, account["display_name"] or account["handle"], account["id"]),
+        )
+        artist_id = cur.fetchone()[0]
+        cur.execute(
+            """insert into artist_accounts (artist_id, account_id, confidence, added_by)
+               values (%s, %s, 'near_proof', 'clustering')""",
+            (artist_id, account["id"]),
+        )
+        cur.execute(
+            """insert into artist_events (artist_id, event, actor, details)
+               values (%s, 'created', %s, %s)""",
+            (artist_id, actor, json.dumps({"anchor_account_id": account["id"]})),
+        )
+    return artist_id
+
+
+def add_member(conn, artist_id: int, account_id: int, confidence: str,
+               details: dict, actor: str = "pipeline") -> None:
+    with conn.cursor() as cur:
+        # Never reopen a membership a human closed.
+        cur.execute(
+            """select 1 from artist_accounts
+               where artist_id = %s and account_id = %s and removed_at is not null""",
+            (artist_id, account_id),
+        )
+        if cur.fetchone():
+            return
+        cur.execute(
+            """insert into artist_accounts (artist_id, account_id, confidence, added_by)
+               values (%s, %s, %s, 'clustering')""",
+            (artist_id, account_id, confidence),
+        )
+        cur.execute(
+            """insert into artist_events (artist_id, event, actor, details)
+               values (%s, 'account_added', %s, %s)""",
+            (artist_id, actor, json.dumps({"account_id": account_id, **details})),
+        )
+
+
+def pending_review_exists(conn, kind: str, key: str, value) -> bool:
+    with conn.cursor() as cur:
+        cur.execute(
+            """select 1 from review_items
+               where kind = %s and status = 'pending' and payload ->> %s = %s""",
+            (kind, key, str(value)),
+        )
+        return cur.fetchone() is not None
+
+
+def add_review_item(conn, kind: str, payload: dict, stats: Counter) -> None:
+    with conn.cursor() as cur:
+        cur.execute("insert into review_items (kind, payload) values (%s, %s)",
+                    (kind, json.dumps(payload)))
+    stats[f"review:{kind}"] += 1
+
+
+def load_state(conn):
+    from psycopg.rows import dict_row
+
+    with conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            """select a.id, a.handle::text, a.display_name, a.followers_count,
+                      a.discovered_via, a.status, p.slug as platform_slug,
+                      p.kind as platform_kind
+               from accounts a join platforms p on p.id = a.platform_id"""
+        )
+        accounts = {row["id"]: row for row in cur.fetchall()}
+        cur.execute(
+            """select id, source_account_id, target_account_id from identity_edges
+               where status = 'present' and evidence_type = any(%s)""",
+            (list(STRONG_EVIDENCE),),
+        )
+        edges = cur.fetchall()
+        cur.execute(
+            """select account_id, artist_id from artist_accounts where removed_at is null"""
+        )
+        membership = {row["account_id"]: row["artist_id"] for row in cur.fetchall()}
+    return accounts, edges, membership
+
+
+def main() -> None:
+    stats: Counter = Counter()
+    with db.connect() as conn:
+        accounts, edges, membership = load_state(conn)
+
+        directed = {(e["source_account_id"], e["target_account_id"]) for e in edges}
+        mutual = {frozenset(pair) for pair in directed if (pair[1], pair[0]) in directed}
+
+        # 1. Union-find over reciprocal (near-proof) pairs.
+        uf = UnionFind()
+        for pair in mutual:
+            a, b = tuple(pair)
+            uf.union(a, b)
+
+        components: dict[int, set[int]] = defaultdict(set)
+        for account_id in uf.parent:
+            components[uf.find(account_id)].add(account_id)
+
+        # 2. Materialize components as artists (or flag conflicts).
+        for members in components.values():
+            artist_ids = {membership[m] for m in members if m in membership}
+            if len(artist_ids) > 1:
+                if not pending_review_exists(conn, "cluster_merge", "artist_ids",
+                                             json.dumps(sorted(artist_ids))):
+                    add_review_item(conn, "cluster_merge", {
+                        "artist_ids": json.dumps(sorted(artist_ids)),
+                        "account_ids": sorted(members),
+                    }, stats)
+                continue
+            if artist_ids:
+                artist_id = artist_ids.pop()
+            else:
+                anchor = max((accounts[m] for m in members),
+                             key=lambda a: a["followers_count"] or 0)
+                if db.is_suppressed(conn, anchor["id"]):
+                    continue
+                artist_id = create_artist(conn, anchor)
+                membership[anchor["id"]] = artist_id
+                stats["artists_created"] += 1
+            for m in members:
+                if m not in membership and not db.is_suppressed(conn, m):
+                    add_member(conn, artist_id, m, "near_proof", {"via": "reciprocal"})
+                    membership[m] = artist_id
+                    stats["members_added"] += 1
+
+        # 3. Singletons: roster-sourced accounts with no membership survive on
+        # their own — no edges required for existence (docs/pipeline.md stage 5).
+        for account in accounts.values():
+            if (account["id"] not in membership
+                    and account["discovered_via"] in policy.ROSTER_SOURCES
+                    and account["platform_kind"] != "link_hub"
+                    and account["status"] in ("active", "unknown")
+                    and not db.is_suppressed(conn, account["id"])):
+                artist_id = create_artist(conn, account)
+                membership[account["id"]] = artist_id
+                stats["singleton_artists"] += 1
+
+        # 4. One-directional strong edges: attach targets, or queue for review
+        # when the target is prominent (impersonation risk).
+        for edge in edges:
+            src, tgt = edge["source_account_id"], edge["target_account_id"]
+            if frozenset((src, tgt)) in mutual or src not in membership:
+                continue
+            src_artist = membership[src]
+            tgt_artist = membership.get(tgt)
+            if tgt_artist == src_artist:
+                continue
+            if tgt_artist is not None:
+                if not pending_review_exists(conn, "cluster_merge", "edge_id", edge["id"]):
+                    add_review_item(conn, "cluster_merge", {
+                        "edge_id": edge["id"],
+                        "artist_ids": json.dumps(sorted({src_artist, tgt_artist})),
+                        "account_ids": [src, tgt],
+                    }, stats)
+                continue
+            if db.is_suppressed(conn, tgt):
+                continue
+            followers = accounts[tgt]["followers_count"] or 0
+            if followers >= policy.REVIEW_FOLLOWER_THRESHOLD:
+                if not pending_review_exists(conn, "one_directional_attach", "edge_id", edge["id"]):
+                    add_review_item(conn, "one_directional_attach", {
+                        "edge_id": edge["id"],
+                        "artist_id": src_artist,
+                        "source_account_id": src,
+                        "target_account_id": tgt,
+                        "target_followers": followers,
+                    }, stats)
+            else:
+                add_member(conn, src_artist, tgt, "strong",
+                           {"via": "one_directional", "edge_id": edge["id"]})
+                membership[tgt] = src_artist
+                stats["members_added"] += 1
+
+        conn.commit()
+    print("done:", dict(stats))
+
+
+if __name__ == "__main__":
+    main()

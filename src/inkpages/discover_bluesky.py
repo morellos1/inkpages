@@ -15,7 +15,8 @@ from collections import Counter
 
 from . import db
 from .bluesky import Bluesky
-from .extract import find_attestations, find_platform_links
+from .extract import (BSKY_NSFW_SELF_LABELS, find_attestations,
+                      find_nsfw_flags, find_platform_links)
 
 
 def collect_actors(bsky: Bluesky, args) -> dict[str, dict]:
@@ -92,6 +93,16 @@ def process_profile(conn, platforms: dict[str, int], profile: dict,
     for signal, matched in find_attestations(bio):
         db.upsert_attestation(conn, account_id, signal, matched, snapshot_id)
         stats["attestations"] += 1
+
+    for signal, matched in find_nsfw_flags(bio):
+        db.upsert_content_flag(conn, account_id, "nsfw", signal, matched, snapshot_id)
+        stats["nsfw_flags"] += 1
+    # Account-level self-labels declared on the profile record itself.
+    for label in profile.get("labels", []):
+        if label.get("val") in BSKY_NSFW_SELF_LABELS and label.get("src") == did:
+            db.upsert_content_flag(conn, account_id, "nsfw", "self_label",
+                                   label["val"], snapshot_id)
+            stats["nsfw_flags"] += 1
 
     for link in find_platform_links(bio):
         platform_id = platforms.get(link.platform)

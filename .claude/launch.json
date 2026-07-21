@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "review-ui",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": ["run", "python", "-m", "inkpages.review_ui"],
+      "port": 8322
+    }
+  ]
+}

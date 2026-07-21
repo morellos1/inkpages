@@ -135,6 +135,19 @@ def upsert_attestation(conn, account_id: int, signal: str, matched_text: str | N
         )
 
 
+def upsert_content_flag(conn, account_id: int, flag: str, signal: str,
+                        matched_text: str | None, evidence_snapshot_id: int) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            """insert into content_flags (account_id, flag, signal, matched_text, evidence_snapshot_id)
+               values (%s, %s, %s, %s, %s)
+               on conflict (account_id, flag, signal, (coalesce(matched_text, '')))
+               do update set last_seen = now(), active = true,
+                             evidence_snapshot_id = excluded.evidence_snapshot_id""",
+            (account_id, flag, signal, matched_text, evidence_snapshot_id),
+        )
+
+
 def upsert_edge(conn, source_account_id: int, target_account_id: int, *,
                 evidence_type: str, evidence_snapshot_id: int,
                 evidence_url: str | None, matched_text: str | None) -> None:

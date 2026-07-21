@@ -1,0 +1,343 @@
+"""Local review UI for the directory: browse artists, inspect evidence,
+work the review queue, suppress/unsuppress.
+
+Usage: uv run python -m inkpages.review_ui   (then open http://127.0.0.1:8322)
+Local admin tooling — binds to 127.0.0.1 only.
+"""
+import json
+
+from flask import Flask, redirect, render_template, request, url_for
+from jinja2 import DictLoader
+from psycopg.rows import dict_row
+
+from . import db
+
+PORT = 8322
+
+TEMPLATES = {
+"base.html": """<!doctype html><html><head><meta charset="utf-8">
+<title>inkpages review</title>
+<style>
+  body { font: 15px/1.5 -apple-system, system-ui, sans-serif; margin: 0; color: #1a1a1a; background: #fafafa; }
+  header { background: #14213d; color: #fff; padding: .7rem 1.2rem; display: flex; gap: 1.4rem; align-items: baseline; }
+  header a { color: #cdd7ee; text-decoration: none; } header a:hover { color: #fff; }
+  header .brand { font-weight: 700; color: #fff; }
+  header .pill { background: #fca311; color: #14213d; border-radius: 9px; padding: 0 .5em; font-size: .82em; font-weight: 700; }
+  main { max-width: 1150px; margin: 1.4rem auto; padding: 0 1.2rem; }
+  table { border-collapse: collapse; width: 100%; background: #fff; }
+  th, td { text-align: left; padding: .45rem .6rem; border-bottom: 1px solid #e7e7e7; vertical-align: top; }
+  th { background: #f0f2f7; font-size: .85em; text-transform: uppercase; letter-spacing: .04em; }
+  .chip { display: inline-block; background: #e8edf7; border-radius: 9px; padding: 0 .5em; margin: 0 .15em .15em 0; font-size: .82em; white-space: nowrap; }
+  .badge-noai { background: #d7f4dd; color: #14532d; font-weight: 600; }
+  .badge-nsfw { background: #fde2e2; color: #7f1d1d; font-weight: 600; }
+  .badge-suppressed { background: #4b5563; color: #fff; font-weight: 600; }
+  .conf-near_proof { color: #14532d; } .conf-strong { color: #92400e; } .conf-weak { color: #7f1d1d; }
+  .stats { display: flex; gap: .8rem; flex-wrap: wrap; margin-bottom: 1.2rem; }
+  .stat { background: #fff; border: 1px solid #e7e7e7; border-radius: 8px; padding: .6rem 1rem; min-width: 8.5rem; }
+  .stat b { display: block; font-size: 1.5em; }
+  .card { background: #fff; border: 1px solid #e7e7e7; border-radius: 8px; padding: 1rem 1.2rem; margin-bottom: 1rem; }
+  .bio { background: #f6f6f2; border-left: 3px solid #cbd5e1; padding: .4rem .7rem; white-space: pre-wrap; font-size: .92em; }
+  form.inline { display: inline; }
+  button { border: 0; border-radius: 6px; padding: .35rem .8rem; cursor: pointer; font-weight: 600; }
+  button.ok { background: #d7f4dd; } button.no { background: #fde2e2; } button.warn { background: #fca311; }
+  input[type=text], select { padding: .35rem .5rem; border: 1px solid #cbd5e1; border-radius: 6px; }
+  .muted { color: #6b7280; font-size: .9em; }
+  h1 { font-size: 1.35rem; } h2 { font-size: 1.1rem; margin-top: 1.6rem; }
+</style></head><body>
+<header>
+  <a class="brand" href="{{ url_for('index') }}">inkpages review</a>
+  <a href="{{ url_for('index') }}">Directory</a>
+  <a href="{{ url_for('review') }}">Review queue {% if pending %}<span class="pill">{{ pending }}</span>{% endif %}</a>
+</header>
+<main>{% block content %}{% endblock %}</main></body></html>""",
+
+"index.html": """{% extends "base.html" %}{% block content %}
+<div class="stats">
+  <div class="stat"><b>{{ stats.artists }}</b>listed artists</div>
+  <div class="stat"><b>{{ stats.badged }}</b>no-AI badged</div>
+  <div class="stat"><b>{{ stats.nsfw }}</b>18+ flagged</div>
+  <div class="stat"><b>{{ stats.accounts }}</b>accounts</div>
+  <div class="stat"><b>{{ stats.suppressed }}</b>suppressed</div>
+  <div class="stat"><b>{{ pending }}</b>pending reviews</div>
+</div>
+<form method="get"><input type="text" name="q" value="{{ q }}" placeholder="search slug / name / handle" autofocus>
+<button class="warn">Search</button></form>
+<p class="muted">{{ artists|length }} shown, ordered by top follower count.</p>
+<table><tr><th>artist</th><th>region</th><th>followers</th><th>accounts</th><th>flags</th></tr>
+{% for a in artists %}<tr>
+  <td><a href="{{ url_for('artist', artist_id=a.artist_id) }}"><b>{{ a.public_slug }}</b></a><br>
+      <span class="muted">{{ a.display_name }}</span></td>
+  <td>{{ a.region }}</td>
+  <td>{{ "{:,}".format(a.followers) if a.followers else "—" }}</td>
+  <td>{% for acc in a.accounts or [] %}<span class="chip">{{ acc.platform }}: {{ acc.handle }}</span>{% endfor %}</td>
+  <td>{% if a.no_ai_attested %}<span class="chip badge-noai">no-AI</span>{% endif %}
+      {% if a.nsfw %}<span class="chip badge-nsfw">18+</span>{% endif %}</td>
+</tr>{% endfor %}</table>
+{% endblock %}""",
+
+"artist.html": """{% extends "base.html" %}{% block content %}
+<h1>{{ artist.display_name }} <span class="muted">/{{ artist.public_slug }}</span>
+  {% if badge %}<span class="chip badge-noai">no-AI</span>{% endif %}
+  {% if nsfw %}<span class="chip badge-nsfw">18+</span>{% endif %}
+  {% if suppressed %}<span class="chip badge-suppressed">SUPPRESSED</span>{% endif %}
+</h1>
+<p class="muted">region: {{ artist.region }} ({{ artist.region_source }}) · status: {{ artist.status }} · created {{ artist.created_at.date() }}</p>
+
+<div class="card">
+{% if suppressed %}
+  <form class="inline" method="post" action="{{ url_for('unsuppress', artist_id=artist.id) }}">
+    <button class="ok">Lift suppression</button>
+    <span class="muted">currently: {{ suppressed.reason }} — {{ suppressed.note or "" }}</span></form>
+{% else %}
+  <form class="inline" method="post" action="{{ url_for('suppress', artist_id=artist.id) }}">
+    <select name="reason"><option>opt_out</option><option>impersonation</option><option>ai_use_confirmed</option><option>other</option></select>
+    <input type="text" name="note" placeholder="note">
+    <button class="no">Suppress (remove from directory)</button></form>
+{% endif %}
+</div>
+
+<h2>Accounts</h2>
+<table><tr><th>platform</th><th>handle</th><th>confidence</th><th>followers</th><th>status</th><th>bio (latest snapshot)</th></tr>
+{% for acc in accounts %}<tr>
+  <td>{{ acc.platform }}{% if acc.display_only %} <span class="muted">(display-only)</span>{% endif %}</td>
+  <td>{% if acc.profile_url and not acc.display_only %}<a href="{{ acc.profile_url }}" target="_blank">{{ acc.handle }}</a>{% else %}{{ acc.handle }}{% endif %}</td>
+  <td class="conf-{{ acc.confidence }}">{{ acc.confidence }}</td>
+  <td>{{ "{:,}".format(acc.followers_count) if acc.followers_count else "—" }}</td>
+  <td>{{ acc.status }}</td>
+  <td>{% if acc.bio %}<div class="bio">{{ acc.bio }}</div>{% endif %}</td>
+</tr>{% endfor %}</table>
+
+<h2>Signals</h2>
+<table><tr><th>type</th><th>signal</th><th>matched</th><th>account</th><th>first seen</th><th>last seen</th></tr>
+{% for s in signals %}<tr>
+  <td>{% if s.kind == 'attestation' %}<span class="chip badge-noai">no-AI</span>{% else %}<span class="chip badge-nsfw">18+</span>{% endif %}</td>
+  <td>{{ s.signal }}</td><td>{{ s.matched_text }}</td><td>{{ s.handle }}</td>
+  <td>{{ s.first_seen.date() }}</td><td>{{ s.last_seen.date() }}</td>
+</tr>{% else %}<tr><td colspan="6" class="muted">none</td></tr>{% endfor %}</table>
+
+<h2>Events</h2>
+<table><tr><th>when</th><th>event</th><th>actor</th><th>details</th></tr>
+{% for e in events %}<tr><td>{{ e.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+<td>{{ e.event }}</td><td>{{ e.actor }}</td><td class="muted">{{ e.details }}</td></tr>{% endfor %}</table>
+{% endblock %}""",
+
+"review.html": """{% extends "base.html" %}{% block content %}
+<h1>Review queue</h1>
+{% if not items %}<p class="muted">Queue is empty — nothing needs a human right now.</p>{% endif %}
+{% for item in items %}
+<div class="card">
+  <b>#{{ item.id }} · {{ item.kind }}</b> <span class="muted">{{ item.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
+  {% if item.kind == 'one_directional_attach' %}
+    <p><a href="{{ url_for('artist', artist_id=item.ctx.artist_id) }}">{{ item.ctx.artist_slug }}</a>
+    ({{ item.ctx.source_handle }}) links one-directionally to
+    <b>{{ item.ctx.target_platform }}: {{ item.ctx.target_handle }}</b>
+    ({{ "{:,}".format(item.ctx.target_followers) }} followers — prominent, impersonation check).
+    Evidence: <a href="{{ item.ctx.evidence_url }}" target="_blank">{{ item.ctx.evidence_url }}</a></p>
+    <p class="muted">Approve = attach the target account to this artist at strong confidence.</p>
+  {% elif item.kind == 'cluster_merge' %}
+    <p>Evidence connects artists that currently exist separately:
+    {% for a in item.ctx.artists %}<a href="{{ url_for('artist', artist_id=a.id) }}">{{ a.public_slug }}</a>{% if not loop.last %} + {% endif %}{% endfor %}</p>
+    <p class="muted">Approve = merge into <b>{{ item.ctx.keeper_slug }}</b> (slugs of the others redirect).</p>
+  {% else %}<pre>{{ item.payload }}</pre>{% endif %}
+  <form class="inline" method="post" action="{{ url_for('decide', item_id=item.id, decision='approve') }}"><button class="ok">Approve</button></form>
+  <form class="inline" method="post" action="{{ url_for('decide', item_id=item.id, decision='reject') }}"><button class="no">Reject</button></form>
+</div>
+{% endfor %}{% endblock %}""",
+}
+
+app = Flask(__name__)
+app.jinja_loader = DictLoader(TEMPLATES)
+
+
+def q(conn, sql, params=None):
+    with conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(sql, params or {})
+        return cur.fetchall()
+
+
+def pending_count(conn) -> int:
+    return q(conn, "select count(*) n from review_items where status = 'pending'")[0]["n"]
+
+
+@app.route("/")
+def index():
+    query = request.args.get("q", "").strip()
+    with db.connect() as conn:
+        artists = q(conn, """
+            select de.*, (select max(a.followers_count)
+                          from artist_accounts aa join accounts a on a.id = aa.account_id
+                          where aa.artist_id = de.artist_id and aa.removed_at is null) as followers
+            from directory_entries de
+            where %(q)s = '' or de.public_slug ilike '%%' || %(q)s || '%%'
+               or de.display_name ilike '%%' || %(q)s || '%%'
+               or exists (select 1 from artist_accounts aa join accounts a on a.id = aa.account_id
+                          where aa.artist_id = de.artist_id and a.handle::text ilike '%%' || %(q)s || '%%')
+            order by followers desc nulls last limit 300""", {"q": query})
+        stats = q(conn, """
+            select (select count(*) from directory_entries) as artists,
+                   (select count(*) from directory_entries where no_ai_attested) as badged,
+                   (select count(*) from directory_entries where nsfw) as nsfw,
+                   (select count(*) from accounts) as accounts,
+                   (select count(distinct artist_id) from suppressions where lifted_at is null) as suppressed""")[0]
+        return render_template("index.html", artists=artists, stats=stats,
+                               q=query, pending=pending_count(conn))
+
+
+@app.route("/artist/<int:artist_id>")
+def artist(artist_id):
+    with db.connect() as conn:
+        artist = q(conn, "select * from artists where id = %s", (artist_id,))[0]
+        accounts = q(conn, """
+            select a.id, a.handle::text, a.profile_url, a.followers_count, a.status,
+                   aa.confidence, p.slug as platform, p.display_only,
+                   (select s.bio_text from account_snapshots s
+                    where s.account_id = a.id order by s.captured_at desc limit 1) as bio
+            from artist_accounts aa
+            join accounts a on a.id = aa.account_id
+            join platforms p on p.id = a.platform_id
+            where aa.artist_id = %s and aa.removed_at is null
+            order by a.followers_count desc nulls last""", (artist_id,))
+        signals = q(conn, """
+            select 'attestation' as kind, att.signal, att.matched_text, a.handle::text,
+                   att.first_seen, att.last_seen
+            from attestations att join accounts a on a.id = att.account_id
+            where att.active and att.account_id in
+                  (select account_id from artist_accounts where artist_id = %(id)s and removed_at is null)
+            union all
+            select 'content_flag', cf.signal, cf.matched_text, a.handle::text,
+                   cf.first_seen, cf.last_seen
+            from content_flags cf join accounts a on a.id = cf.account_id
+            where cf.active and cf.account_id in
+                  (select account_id from artist_accounts where artist_id = %(id)s and removed_at is null)
+            order by first_seen""", {"id": artist_id})
+        events = q(conn, "select * from artist_events where artist_id = %s order by created_at",
+                   (artist_id,))
+        suppressed_rows = q(conn, """select * from suppressions
+                                     where artist_id = %s and lifted_at is null limit 1""", (artist_id,))
+        return render_template(
+            "artist.html", artist=artist, accounts=accounts, signals=signals, events=events,
+            suppressed=suppressed_rows[0] if suppressed_rows else None,
+            badge=any(s["kind"] == "attestation" for s in signals),
+            nsfw=any(s["kind"] == "content_flag" for s in signals),
+            pending=pending_count(conn))
+
+
+@app.route("/artist/<int:artist_id>/suppress", methods=["POST"])
+def suppress(artist_id):
+    with db.connect() as conn, conn.cursor() as cur:
+        cur.execute("""insert into suppressions (artist_id, reason, note, requested_by)
+                       values (%s, %s, %s, 'admin:review-ui')""",
+                    (artist_id, request.form["reason"], request.form.get("note") or None))
+        cur.execute("""insert into artist_events (artist_id, event, actor, details)
+                       values (%s, 'suppressed', 'admin:review-ui', %s)""",
+                    (artist_id, json.dumps({"reason": request.form["reason"]})))
+        conn.commit()
+    return redirect(url_for("artist", artist_id=artist_id))
+
+
+@app.route("/artist/<int:artist_id>/unsuppress", methods=["POST"])
+def unsuppress(artist_id):
+    with db.connect() as conn, conn.cursor() as cur:
+        cur.execute("update suppressions set lifted_at = now() where artist_id = %s and lifted_at is null",
+                    (artist_id,))
+        cur.execute("""insert into artist_events (artist_id, event, actor)
+                       values (%s, 'unsuppressed', 'admin:review-ui')""", (artist_id,))
+        conn.commit()
+    return redirect(url_for("artist", artist_id=artist_id))
+
+
+def _enrich(conn, item):
+    payload = item["payload"]
+    ctx = {}
+    if item["kind"] == "one_directional_attach":
+        src = q(conn, """select a.handle::text as handle, ar.public_slug, ar.id as artist_id
+                         from accounts a
+                         join artist_accounts aa on aa.account_id = a.id and aa.removed_at is null
+                         join artists ar on ar.id = aa.artist_id
+                         where a.id = %s""", (payload["source_account_id"],))
+        tgt = q(conn, """select a.handle::text as handle, a.followers_count, p.slug as platform
+                         from accounts a join platforms p on p.id = a.platform_id
+                         where a.id = %s""", (payload["target_account_id"],))
+        edge = q(conn, "select evidence_url from identity_edges where id = %s", (payload["edge_id"],))
+        if src and tgt:
+            ctx = {"artist_id": src[0]["artist_id"], "artist_slug": src[0]["public_slug"],
+                   "source_handle": src[0]["handle"], "target_handle": tgt[0]["handle"],
+                   "target_platform": tgt[0]["platform"],
+                   "target_followers": tgt[0]["followers_count"] or 0,
+                   "evidence_url": edge[0]["evidence_url"] if edge else None}
+    elif item["kind"] == "cluster_merge":
+        ids = json.loads(payload["artist_ids"])
+        artists = q(conn, "select id, public_slug from artists where id = any(%s) order by id", (ids,))
+        ctx = {"artists": artists, "keeper_slug": artists[0]["public_slug"] if artists else "?"}
+    item["ctx"] = ctx
+    return item
+
+
+@app.route("/review")
+def review():
+    with db.connect() as conn:
+        items = [_enrich(conn, i) for i in
+                 q(conn, "select * from review_items where status = 'pending' order by created_at")]
+        return render_template("review.html", items=items, pending=len(items))
+
+
+def _approve(conn, item):
+    payload = item["payload"]
+    with conn.cursor() as cur:
+        if item["kind"] == "one_directional_attach":
+            cur.execute("""select 1 from artist_accounts
+                           where account_id = %s and removed_at is null""",
+                        (payload["target_account_id"],))
+            if cur.fetchone() is None:
+                cur.execute("""insert into artist_accounts (artist_id, account_id, confidence, added_by)
+                               values (%s, %s, 'strong', 'human')""",
+                            (payload["artist_id"], payload["target_account_id"]))
+                cur.execute("""insert into artist_events (artist_id, event, actor, details)
+                               values (%s, 'account_added', 'admin:review-ui', %s)""",
+                            (payload["artist_id"], json.dumps(
+                                {"account_id": payload["target_account_id"],
+                                 "edge_id": payload["edge_id"]})))
+        elif item["kind"] == "cluster_merge":
+            ids = sorted(json.loads(payload["artist_ids"]))
+            keeper, losers = ids[0], ids[1:]
+            for loser in losers:
+                cur.execute("""select account_id, confidence from artist_accounts
+                               where artist_id = %s and removed_at is null""", (loser,))
+                for account_id, confidence in cur.fetchall():
+                    cur.execute("""update artist_accounts set removed_at = now()
+                                   where artist_id = %s and account_id = %s and removed_at is null""",
+                                (loser, account_id))
+                    cur.execute("""insert into artist_accounts (artist_id, account_id, confidence, added_by)
+                                   values (%s, %s, %s, 'human')
+                                   on conflict (account_id) where removed_at is null do nothing""",
+                                (keeper, account_id, confidence))
+                cur.execute("update artists set merged_into = %s, updated_at = now() where id = %s",
+                            (keeper, loser))
+                cur.execute("""insert into artist_events (artist_id, event, actor, details)
+                               values (%s, 'merged', 'admin:review-ui', %s)""",
+                            (loser, json.dumps({"into": keeper})))
+
+
+@app.route("/review/<int:item_id>/<decision>", methods=["POST"])
+def decide(item_id, decision):
+    assert decision in ("approve", "reject")
+    with db.connect() as conn:
+        item = q(conn, "select * from review_items where id = %s and status = 'pending'", (item_id,))
+        if item:
+            if decision == "approve":
+                _approve(conn, item[0])
+            with conn.cursor() as cur:
+                cur.execute("""update review_items
+                               set status = %s, resolved_at = now(), decided_by = 'admin:review-ui'
+                               where id = %s""",
+                            ("approved" if decision == "approve" else "rejected", item_id))
+            conn.commit()
+    return redirect(url_for("review"))
+
+
+def main():
+    app.run(host="127.0.0.1", port=PORT, debug=False)
+
+
+if __name__ == "__main__":
+    main()

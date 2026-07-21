@@ -57,8 +57,29 @@ Enumerates rosters (feeds, starter packs, lists), hydrates profiles in free
 (→ `identity_edges`) and no-AI signals (→ `attestations`). All calls are
 recorded in `api_usage`.
 
+### Clustering
+
+```sh
+uv run python -m inkpages.cluster
+```
+
+Reciprocal edges merge automatically; roster-sourced accounts with no edges
+become singleton artists; one-directional links to prominent accounts and
+artist-merge proposals go to the review queue instead of auto-applying.
+
+### Review UI (local)
+
+```sh
+uv run python -m inkpages.review_ui   # http://127.0.0.1:8322
+```
+
+Browse the directory (badges, 18+ flags, follower ordering), inspect any
+artist's accounts with bio evidence, work the review queue
+(approve/reject attaches and merges), and suppress/unsuppress artists.
+
 ## Status
 
-Schema done; Bluesky discovery worker running. Next: clustering (including
-singleton-artist creation for roster-sourced accounts — see
-`src/inkpages/policy.py`), then the Twitter column (needs paid X API access).
+Schema, Bluesky discovery, extraction (no-AI + NSFW signals), clustering, and
+the local review UI are running. Next: the Twitter column (#PortfolioDay
+harvest + hydration — needs explicit spend approval), hub crawling, region
+classification, ranking.

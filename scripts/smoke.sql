@@ -55,6 +55,11 @@ values
     ((select id from accounts where handle = 'inkwitch'), 'bio_tag', '#NoAI',
      (select s.id from account_snapshots s join accounts a on a.id = s.account_id where a.handle = 'inkwitch'));
 
+insert into content_flags (account_id, flag, signal, matched_text, evidence_snapshot_id)
+values
+    ((select id from accounts where handle = 'inkwitch_px'), 'nsfw', 'bio_marker', 'R-18',
+     (select s.id from account_snapshots s join accounts a on a.id = s.account_id where a.handle = 'inkwitch_px'));
+
 insert into suppressions (artist_id, reason, note, requested_by)
 values
     ((select id from artists where public_slug = 'brushlord'), 'opt_out', 'Email request 2026-07-01', 'artist via contact form');
@@ -77,6 +82,11 @@ begin
     select count(*) into n from directory_entries where public_slug = 'inkwitch' and no_ai_attested;
     if n <> 1 then
         raise exception 'inkwitch should be listed with the no-AI badge';
+    end if;
+
+    select count(*) into n from directory_entries where public_slug = 'inkwitch' and nsfw;
+    if n <> 1 then
+        raise exception 'inkwitch should carry the derived nsfw flag (R-18 on her pixiv account)';
     end if;
 
     -- Display-only policy: the Instagram handle appears, but unlinked.
@@ -115,7 +125,7 @@ begin
 end
 $$;
 
-select public_slug, display_name, region, no_ai_attested, jsonb_pretty(accounts) as accounts
+select public_slug, display_name, region, no_ai_attested, nsfw, jsonb_pretty(accounts) as accounts
 from directory_entries;
 
 rollback;

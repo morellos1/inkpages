@@ -55,6 +55,8 @@ attestations/suppressions) is the only publish surface, and
 | `artist_accounts` | Cluster membership with confidence tier and open/closed history |
 | `artist_events` | Append-only audit of merges, splits, overrides |
 | `attestations` | Per-account no-AI signals with first/last seen |
+| `content_flags` | Per-account NSFW/18+ self-signals (🔞/R-18/NSFW bio markers, Bluesky self-labels), same model as attestations; derived per-artist `nsfw` in the publish view |
+| `review_items` | Human review queue for clustering decisions (prominent-target attaches, artist merges) |
 | `suppressions` | Opt-outs and delistings; block publish and re-discovery |
 | `corrections` | Community report queue with human resolution |
 | `ranking_runs` / `ranking_entries` | Recorded stratified cuts with border-zone flags |

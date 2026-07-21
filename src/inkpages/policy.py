@@ -7,6 +7,11 @@
 # with no external links in the directory. Accounts discovered only
 # incidentally (e.g. as a bio_link target) need an edge into a cluster or a
 # human decision before an artist exists for them.
+# One-directional attaches whose *target* has at least this many followers go
+# to human review instead of auto-attaching: impersonators link to famous
+# accounts, so that is exactly where a lone bio link stops being sufficient.
+REVIEW_FOLLOWER_THRESHOLD = 10_000
+
 ROSTER_SOURCES = {
     "bsky_feed",
     "bsky_starter_pack",
