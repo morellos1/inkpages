@@ -24,6 +24,17 @@ CSRF/perf, cleanup). Key new behavior:
   **SFW by default** — 18+ artists appear only via the "show 18+" filter
   toggle (`show18=1`) or the 18+-only flag. `review_ui` honors `$PORT`
   (launch.json has `autoPort: true`).
+- **profcard.info / twpf.jp / tsunagu.cloud are crawlable `link_hub`
+  platforms** (migration 0025, display_rank 15 so an opaque profcard uid
+  never wins the name derivation). `crawl_links.SERVICE_ACCOUNTS` blocklists
+  hub services' own footer/social accounts (TSUNAGU's twitter + demo profile
+  reciprocally auto-merged into a fake artist once — suppressed). Tumblr's
+  pattern now excludes reserved paths (`tumblr.com/contact` etc.).
+- **Artist page titles use the directory name rule** (top-display_rank
+  visible account, any membership confidence). **Anomaly 5b**
+  (`ANOMALY_CROSS_ARTIST_REFS=3`): member accounts whose edges touch ≥3
+  other artists queue an `other` review item (junk shared targets or
+  unmerged alt-artist groups — the deppa/sdns53 triangle, vat0uq/vatouq).
 - **Shorteners are centralized in `extract.SHORTENER_DOMAINS`** (t.co, bit.ly,
   tinyurl, goo.gl, x.gd, onl.tw/sc, buly.kr, **pixiv.me**) — drives
   `find_short_links`, the `resolve_shorteners` SQL scan (x.gd was missing
@@ -67,11 +78,11 @@ CSRF/perf, cleanup). Key new behavior:
 
 ## Previous state (2026-07-21 morning)
 
-- **2,601 listed artists** (post-audit healing merged duplicates; +89 hidden
-  by the sub-50-follower cull; +5 from the 2026-07-21 shortener-recovery
-  pass), ~13.75k accounts, 1,046 flagged 18+, 118
-  no-AI badged. Languages: ~1,844 ja /
-  ~693 en / ~102 zh / ~24 ko.
+- **2,609 listed artists** (post-audit healing merged duplicates; +89 hidden
+  by the sub-50-follower cull; +~13 from the 2026-07-21 shortener-recovery
+  and hub-crawl passes), ~13.9k accounts, 1,047 flagged 18+, 118
+  no-AI badged. Languages: ~1,854 ja /
+  ~693 en / ~101 zh / ~24 ko. Paid X spend: $31.50 of $100.
 - **Discovery live**: Bluesky (free), Skeb (free — Algolia ranking +
   `--hydrate-known`), Pixiv (free — SFW rankings + **tag-search harvest**:
   `--tag オリジナル --tag-mode r18 --tag-order popular_d --new-only --max-new N`;
@@ -88,8 +99,10 @@ CSRF/perf, cleanup). Key new behavior:
 - **Not built yet**: stratified ranking runs, Bluesky list/starter-pack
   expansion, Graphtreon/Patreon, ArtStation/Cara/DeviantArt/Tumblr, the public
   site.
-- Review queue: **28 pending** — 7 `cluster_merge` + 21 anomalies/other
-  (post-shortener-pass counts; 19 artists additionally sit in `needs_review`).
+- Review queue: **44 pending** — 10 `cluster_merge` + 34 anomalies/other
+  (post-hub-crawl counts incl. the new cross-artist-refs anomalies; 19
+  artists additionally sit in `needs_review`). Twitter hydration backlog is
+  **clear** (user standing rule: auto-run when estimated spend < $10).
   Artist-level cyclical references now auto-merge (see clustering model), which
   drained 10 of the old 21 merge conflicts. **99 more unresolved same-person
   claims across 74 artists** are now visible+attachable on artist pages (see

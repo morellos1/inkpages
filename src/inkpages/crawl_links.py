@@ -25,6 +25,16 @@ from .extract import (SHORTENER_DOMAINS, find_commission_status, find_email,
 # with find_short_links by deriving from the same domain list.
 _SHORTENER_SCAN_RE = "(%s)/" % "|".join(re.escape(d) for d in SHORTENER_DOMAINS)
 
+# Hub services' own footer/social accounts. Every hub page carries them, so
+# they'd otherwise become massively-shared targets — or worse, an artist:
+# TSUNAGU's twitter bio links its demo profile, whose page links back, and
+# that reciprocal pair auto-merged into a fake "tsunagu-cloud" artist.
+SERVICE_ACCOUNTS = {
+    ("twitter", "tsunagu_cloud"), ("tsunagu", "test_account"),
+    ("twitter", "linktr_ee"), ("twitter", "carrd"), ("twitter", "potofu_me"),
+    ("twitter", "twpf"), ("twitter", "profcard_info"), ("twitter", "lit_link"),
+}
+
 _TAG_STRIP = re.compile(r"<(?:script|style)[^>]*>.*?</(?:script|style)>|<[^>]+>",
                         re.IGNORECASE | re.DOTALL)
 # Attribute/JSON-scoped URL extraction for hub pages: personal-website links
@@ -199,7 +209,8 @@ def crawl_hubs(conn, client, platforms, max_hubs, stats):
                 .replace("\\/", "/").replace("\\u002F", "/").replace("\\u002f", "/")
                 .replace("&amp;", "&"))
         links = [l for l in find_platform_links(html)
-                 if not (l.platform == hub["platform"])]
+                 if not (l.platform == hub["platform"])
+                 and (l.platform, (l.handle or "").lower()) not in SERVICE_ACCOUNTS]
         # Personal websites listed on the hub (attribute-scoped; every other
         # worker extracts them, hubs previously dropped them). More than 5
         # distinct sites reads as a credits/resources dump — skip those.
