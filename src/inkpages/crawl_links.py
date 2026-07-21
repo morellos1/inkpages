@@ -163,8 +163,12 @@ def crawl_hubs(conn, client, platforms, max_hubs, stats):
             stats[f"hubs_http_{resp.status_code}"] += 1
             continue
         with conn.cursor() as cur:
-            cur.execute("update accounts set status = 'active', last_hydrated = now() where id = %s",
-                        (hub["id"],))
+            cur.execute(
+                """update accounts
+                   set status = case when status = 'hidden' then 'hidden' else 'active' end,
+                       last_hydrated = now()
+                   where id = %s""",
+                (hub["id"],))
         # Hub builders embed links in JSON blobs with escaped slashes.
         html = (resp.text[:800_000]
                 .replace("\\/", "/").replace("\\u002F", "/").replace("\\u002f", "/")

@@ -4,7 +4,6 @@ via users/by (~$0.01/user, 100 handles per request), with the budget guard.
 Usage: uv run python -m inkpages.hydrate_twitter --limit 200
 """
 import argparse
-import math
 from collections import Counter
 
 from . import db
@@ -21,14 +20,17 @@ def main() -> None:
     args = parser.parse_args()
 
     stats: Counter = Counter()
-    api = XApi()
     with db.connect() as conn:
+        api = XApi(conn)  # bills each batch into api_usage as it is fetched
         platforms = db.platform_ids(conn)
         if args.refresh:
             with conn.cursor() as cur:
+                # 'hidden' (verification-culled) accounts are excluded: a
+                # refresh must never spend on them or resurrect the cull.
                 cur.execute(
                     """select native_id from accounts
                        where platform_id = %s and native_id is not null
+                         and status <> 'hidden'
                        order by last_hydrated asc nulls first limit %s""",
                     (platforms["twitter"], args.limit),
                 )
@@ -37,10 +39,7 @@ def main() -> None:
                 print("nothing to refresh")
                 return
             ensure_budget(conn, len(ids) * USER_READ_CENTS)
-            found, missing = api.users_by_ids(ids)
-            db.log_api_usage(conn, "x_api", "users(ids)", len(ids),
-                             math.ceil(len(ids) * USER_READ_CENTS), note="refresh")
-            conn.commit()
+            found, missing = api.users_by_ids(ids, note="refresh")
             for user in found:
                 process_user(conn, platforms, user, "hydration", {}, stats)
             with conn.cursor() as cur:
@@ -82,9 +81,6 @@ def main() -> None:
         ensure_budget(conn, (len(ids) + len(handles)) * USER_READ_CENTS)
         found, missing_ids = (api.users_by_ids(ids) if ids else ([], []))
         found2, missing_handles = (api.users_by(handles) if handles else ([], []))
-        db.log_api_usage(conn, "x_api", "users_by+ids", len(ids) + len(handles),
-                         math.ceil((len(ids) + len(handles)) * USER_READ_CENTS))
-        conn.commit()
 
         for user in found + found2:
             process_user(conn, platforms, user, "hydration", {}, stats)

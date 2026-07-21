@@ -78,7 +78,10 @@ def get_or_create_account(
                        set native_id = %s, handle = %s,
                            display_name = coalesce(%s, display_name),
                            profile_url = coalesce(%s, profile_url),
-                           status = %s,
+                           -- 'hidden' is an admin-side verification cull;
+                           -- only an explicit admin action lifts it.
+                           status = case when accounts.status = 'hidden'
+                                         then 'hidden' else %s end,
                            followers_count = coalesce(%s, followers_count),
                            last_post_at = coalesce(%s, last_post_at),
                            last_hydrated = case when %s then now() else last_hydrated end

@@ -63,9 +63,13 @@ def main() -> None:
                            where id = %s""", (row["id"],))
                     stats["dead"] += 1
                 elif resp.status_code == 200:
+                    # A live page revives unknown/deleted rows but never lifts
+                    # the admin-side 'hidden' verification cull.
                     cur.execute(
                         """update accounts
-                           set status = 'active', link_checked_at = now()
+                           set status = case when status = 'hidden'
+                                             then 'hidden' else 'active' end,
+                               link_checked_at = now()
                            where id = %s""", (row["id"],))
                     stats["alive"] += 1
                 else:

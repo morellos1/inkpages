@@ -8,7 +8,6 @@ Usage:
   uv run python -m inkpages.harvest_twitter --max-posts 1000 --top 300
 """
 import argparse
-import math
 from collections import Counter
 
 from . import db
@@ -24,16 +23,13 @@ def main() -> None:
     args = parser.parse_args()
 
     stats: Counter = Counter()
-    api = XApi()
     with db.connect() as conn:
+        api = XApi(conn)  # bills each page into api_usage as it is read
         ensure_budget(conn, args.max_posts * POST_READ_CENTS)
         platforms = db.platform_ids(conn)
 
-        posts_read, users = api.search_recent(args.query, args.max_posts)
-        db.log_api_usage(conn, "x_api", "tweets/search/recent", posts_read,
-                         math.ceil(posts_read * POST_READ_CENTS),
-                         note=f"query={args.query!r}")
-        conn.commit()
+        posts_read, users = api.search_recent(args.query, args.max_posts,
+                                              note=f"query={args.query!r}")
         print(f"read {posts_read} posts -> {len(users)} unique authors")
 
         authors = sorted(users.values(),

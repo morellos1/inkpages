@@ -119,11 +119,24 @@ def merge_artists(conn, keeper: int, losers: list[int], actor: str = "pipeline")
             cur.execute(
                 """select account_id, confidence from artist_accounts
                    where artist_id = %s and removed_at is null""", (loser,))
+            admin_blocked: list[int] = []
             for account_id, confidence in cur.fetchall():
                 cur.execute(
                     """update artist_accounts set removed_at = now()
                        where artist_id = %s and account_id = %s and removed_at is null""",
                     (loser, account_id))
+                if not actor.startswith("admin"):
+                    # Same guard as add_member: a membership a HUMAN closed on
+                    # the keeper never reopens via an automatic merge.
+                    cur.execute(
+                        """select 1 from artist_events
+                           where artist_id = %s and event = 'account_removed'
+                             and (details ->> 'account_id')::bigint = %s
+                             and actor like 'admin%%'""",
+                        (keeper, account_id))
+                    if cur.fetchone():
+                        admin_blocked.append(account_id)
+                        continue
                 cur.execute(
                     """insert into artist_accounts (artist_id, account_id, confidence, added_by)
                        select %s, %s, %s, %s
@@ -133,10 +146,13 @@ def merge_artists(conn, keeper: int, losers: list[int], actor: str = "pipeline")
                      "human" if actor.startswith("admin") else "clustering", account_id))
             cur.execute("update artists set merged_into = %s, updated_at = now() where id = %s",
                         (keeper, loser))
+            details = {"into": keeper}
+            if admin_blocked:
+                details["admin_blocked_accounts"] = admin_blocked
             cur.execute(
                 """insert into artist_events (artist_id, event, actor, details)
                    values (%s, 'merged', %s, %s)""",
-                (loser, actor, json.dumps({"into": keeper})))
+                (loser, actor, json.dumps(details)))
 
 
 def flip_to_connection(conn, edge_id: int, hint: str) -> None:
@@ -168,6 +184,31 @@ def review_exists(conn, kind: str, key: str, value) -> bool:
             (kind, key, str(value)),
         )
         return cur.fetchone() is not None
+
+
+def merge_rejected(conn, a: int, b: int) -> bool:
+    """A human already ruled this pair is NOT the same person — that decision
+    is sacred, so automation must never merge the pair again."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """select 1 from review_items
+               where kind = 'cluster_merge' and status = 'rejected'
+                 and payload ->> 'artist_ids' = %s""",
+            (json.dumps(sorted((a, b))),),
+        )
+        return cur.fetchone() is not None
+
+
+def resolve_pending_merges(conn, a: int, b: int, decided_by: str) -> None:
+    """An auto-merge answers any pending human question for the same pair."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """update review_items
+               set status = 'approved', resolved_at = now(), decided_by = %s
+               where kind = 'cluster_merge' and status = 'pending'
+                 and payload ->> 'artist_ids' = %s""",
+            (decided_by, json.dumps(sorted((a, b)))),
+        )
 
 
 def add_review_item(conn, kind: str, payload: dict, stats: Counter) -> None:
@@ -307,10 +348,13 @@ def main() -> None:
                 for m in members:
                     if m not in membership and m in accounts:
                         combined[accounts[m]["platform_slug"]] += 1
-                if len(ids) == 2 and (not combined or
-                                      max(combined.values()) <= policy.MAX_SAME_PLATFORM):
+                if (len(ids) == 2 and not merge_rejected(conn, *ids)
+                        and (not combined or
+                             max(combined.values()) <= policy.MAX_SAME_PLATFORM)):
                     keeper, loser = ids
                     merge_artists(conn, keeper, [loser])
+                    resolve_pending_merges(conn, keeper, loser,
+                                           "pipeline:reciprocal_component")
                     for acc, aid in list(membership.items()):
                         if aid == loser:
                             membership[acc] = keeper
@@ -516,6 +560,8 @@ def main() -> None:
             prominent claims — are cyclically linked: the same near-proof as a
             mutual account pair. Merge them, restore the flipped edges, and
             answer any pending human question for the pair."""
+            if merge_rejected(conn, a, b):
+                return False
             fwd_same, fwd_flipped = artist_directed_claims(a, b)
             back_same, back_flipped = artist_directed_claims(b, a)
             if not (fwd_same or fwd_flipped) or not (back_same or back_flipped):
@@ -526,7 +572,6 @@ def main() -> None:
             if artist_suppressed(a) or artist_suppressed(b):
                 return False
             keeper, loser = sorted((a, b))
-            pair = json.dumps([keeper, loser])
             merge_artists(conn, keeper, [loser])
             for acc, aid in list(membership.items()):
                 if aid == loser:
@@ -539,12 +584,7 @@ def main() -> None:
                         """update identity_edges set claim = 'same_person',
                                relation_hint = 'artist_reciprocity'
                            where id = %s and claim = 'related'""", (eid,))
-                ecur.execute(
-                    """update review_items
-                       set status = 'approved', resolved_at = now(),
-                           decided_by = 'pipeline:artist_reciprocity'
-                       where kind = 'cluster_merge' and status = 'pending'
-                         and payload ->> 'artist_ids' = %s""", (pair,))
+            resolve_pending_merges(conn, keeper, loser, "pipeline:artist_reciprocity")
             stats["artist_reciprocity_merged"] += 1
             return True
 

@@ -1,9 +1,11 @@
 """X (Twitter) official pay-per-use API client + shared processing.
 
-Hard rules: official API only, never scrapers; every paid call is ledgered in
-api_usage BEFORE results are used; a hard budget cap is checked before any
-spend. Pricing assumptions (cents): post read 0.5, user read 1.0.
+Hard rules: official API only, never scrapers; every paid page/batch is
+ledgered in api_usage (and committed) the moment it returns, so a crash later
+in the run can never leave paid reads unbilled; a hard budget cap is checked
+before any spend. Pricing assumptions (cents): post read 0.5, user read 1.0.
 """
+import math
 import sys
 import time
 from datetime import datetime, timezone
@@ -55,15 +57,26 @@ def ensure_budget(conn, planned_cents: float) -> None:
 
 
 class XApi:
-    def __init__(self) -> None:
+    def __init__(self, conn=None) -> None:
         bearer = db.env_var("X_API_BEARER_TOKEN")
         if not bearer:
             sys.exit("X_API_BEARER_TOKEN not set")
+        self._conn = conn
         self._client = httpx.Client(
             timeout=30,
             headers={"Authorization": f"Bearer {bearer}",
                      "User-Agent": "inkpages/0.1 (no-AI artist directory)"},
         )
+
+    def _bill(self, endpoint: str, units: int, cents_per: float,
+              note: str | None = None) -> None:
+        # Ledger + commit per page/batch: an exception on a later page must
+        # never lose the record of money already spent.
+        if self._conn is None or units == 0:
+            return
+        db.log_api_usage(self._conn, "x_api", endpoint, units,
+                         math.ceil(units * cents_per), note=note)
+        self._conn.commit()
 
     def _get(self, path: str, **params) -> dict:
         for attempt in (1, 2):
@@ -76,16 +89,19 @@ class XApi:
             return resp.json()
         raise RuntimeError("unreachable")
 
-    def search_recent(self, query: str, max_posts: int):
+    def search_recent(self, query: str, max_posts: int, note: str | None = None):
         """Returns (posts_read, users_by_id). Author profiles arrive via the
         expansion at no extra read cost."""
         posts_read = 0
         users: dict[str, dict] = {}
         next_token = None
         while posts_read < max_posts:
+            remaining = max_posts - posts_read
+            if remaining < 10:
+                break  # API page minimum is 10 — never read past the budgeted max
             params = {
                 "query": query,
-                "max_results": min(100, max(10, max_posts - posts_read)),
+                "max_results": min(100, remaining),
                 "tweet.fields": "author_id,created_at",
                 "expansions": "author_id",
                 "user.fields": USER_FIELDS,
@@ -95,6 +111,7 @@ class XApi:
             page = self._get("tweets/search/recent", **params)
             data = page.get("data", [])
             posts_read += len(data)
+            self._bill("tweets/search/recent", len(data), POST_READ_CENTS, note)
             for user in page.get("includes", {}).get("users", []):
                 users.setdefault(user["id"], user)
             next_token = page.get("meta", {}).get("next_token")
@@ -102,26 +119,28 @@ class XApi:
                 break
         return posts_read, users
 
-    def users_by(self, usernames: list[str]):
+    def users_by(self, usernames: list[str], note: str | None = None):
         """Returns (found_users, missing_usernames)."""
         found, missing = [], []
         for i in range(0, len(usernames), 100):
             batch = usernames[i:i + 100]
             page = self._get("users/by", usernames=",".join(batch),
                              **{"user.fields": USER_FIELDS})
+            self._bill("users/by", len(batch), USER_READ_CENTS, note)
             found += page.get("data", [])
             for err in page.get("errors", []):
                 if err.get("parameter") == "usernames":
                     missing.append(err.get("value"))
         return found, missing
 
-    def users_by_ids(self, ids: list[str]):
+    def users_by_ids(self, ids: list[str], note: str | None = None):
         """Refresh by stable numeric id — survives handle renames."""
         found, missing = [], []
         for i in range(0, len(ids), 100):
             batch = ids[i:i + 100]
             page = self._get("users", ids=",".join(batch),
                              **{"user.fields": USER_FIELDS})
+            self._bill("users(ids)", len(batch), USER_READ_CENTS, note)
             found += page.get("data", [])
             for err in page.get("errors", []):
                 if err.get("parameter") == "ids":
