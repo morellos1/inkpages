@@ -527,6 +527,52 @@ def main() -> None:
                 note_attach(src_artist, tgt)
                 stats["members_added"] += 1
 
+        # 5. Anomaly flags: artists whose link graph looks like a credits
+        # dump — surfaced for manual review, no automatic action.
+        from psycopg.rows import dict_row
+
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                """select ar.id as artist_id, ar.public_slug,
+                       coalesce((select max(cnt) from (
+                           select count(*) cnt from identity_edges e
+                           join artist_accounts ha on ha.account_id = e.source_account_id
+                                and ha.removed_at is null and ha.artist_id = ar.id
+                           join accounts sa on sa.id = e.source_account_id
+                           join platforms sp on sp.id = sa.platform_id
+                           where sp.kind = 'link_hub' and e.status = 'present'
+                           group by e.source_account_id) f), 0) as hub_fanout,
+                       (select count(*) from artist_accounts aa
+                        join accounts a on a.id = aa.account_id
+                        where aa.artist_id = ar.id and aa.removed_at is null
+                          and a.discovered_via = 'link_hub') as hub_attached,
+                       (select count(distinct e2.id) from identity_edges e2
+                        where e2.claim = 'related' and e2.status = 'present'
+                          and exists (select 1 from artist_accounts aa2
+                                      where aa2.removed_at is null and aa2.artist_id = ar.id
+                                        and aa2.account_id in (e2.source_account_id,
+                                                               e2.target_account_id))
+                       ) as related_count
+                   from artists ar
+                   where ar.status = 'active' and ar.merged_into is null"""
+            )
+            for row in cur.fetchall():
+                reasons = {}
+                if row["hub_fanout"] >= policy.ANOMALY_HUB_FANOUT:
+                    reasons["hub_fanout"] = row["hub_fanout"]
+                if row["hub_attached"] >= policy.ANOMALY_HUB_ATTACHED:
+                    reasons["hub_attached"] = row["hub_attached"]
+                if row["related_count"] >= policy.ANOMALY_RELATED_CONNECTIONS:
+                    reasons["related_connections"] = row["related_count"]
+                if reasons and not review_exists(conn, "other", "artist_id",
+                                                 row["artist_id"]):
+                    add_review_item(conn, "other", {
+                        "type": "anomaly",
+                        "artist_id": row["artist_id"],
+                        "public_slug": row["public_slug"],
+                        "reasons": reasons,
+                    }, stats)
+
         conn.commit()
     print("done:", dict(stats))
 

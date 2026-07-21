@@ -109,7 +109,7 @@ TEMPLATES = {
 </div>
 
 <h2>Accounts</h2>
-<table><tr><th>platform</th><th>handle</th><th>confidence</th><th>followers</th><th>last post</th><th>comms</th><th>contact</th><th>bio (latest snapshot)</th></tr>
+<table><tr><th>platform</th><th>handle</th><th>confidence</th><th>followers</th><th>last post</th><th>comms</th><th>contact</th><th>bio (latest snapshot)</th><th></th></tr>
 {% for acc in accounts %}<tr>
   <td>{{ acc.platform }}</td>
   <td>{% if acc.profile_url %}<a href="{{ acc.profile_url }}" target="_blank">{{ acc.handle }}</a>{% else %}{{ acc.handle }}{% endif %}
@@ -122,6 +122,9 @@ TEMPLATES = {
         · {{ acc.commission_checked_at.date() if acc.commission_checked_at }}</span>{% else %}—{% endif %}</td>
   <td>{{ acc.contact_email or "—" }}</td>
   <td>{% if acc.bio %}<div class="bio">{{ acc.bio }}</div>{% endif %}</td>
+  <td><form class="inline" method="post" action="{{ url_for('detach', artist_id=artist.id, account_id=acc.id) }}"
+       onsubmit="return confirm('Detach {{ acc.handle }} from this artist? It becomes a connection and will never auto-reattach.')">
+       <button class="no">detach</button></form></td>
 </tr>{% endfor %}</table>
 
 <h2>Connections (related, never merged)</h2>
@@ -197,6 +200,20 @@ puts an artist back in the directory and permanently exempts them from auto-demo
     </ul>
     <p class="muted">Approve = merge into <b>{{ item.ctx.keeper_slug }}</b>.</p>
   {% else %}<pre>{{ item.payload }}</pre>{% endif %}
+  {{ decide_buttons(item) }}
+</div>
+{% endfor %}
+
+<h1>Anomaly flags <span class="muted">({{ anomaly_items|length }})</span></h1>
+{% if not anomaly_items %}<p class="muted">Nothing looks off.</p>{% endif %}
+{% for item in anomaly_items %}
+<div class="card">
+  <b>#{{ item.id }}</b> ⚠️
+  <a href="{{ url_for('artist', artist_id=item.payload.artist_id) }}"><b>{{ item.payload.public_slug }}</b></a>
+  — link graph looks like a credits/projects page:
+  {% for k, v in item.payload.reasons.items() %}<span class="chip badge-nsfw">{{ k }}: {{ v }}</span>{% endfor %}
+  <p class="muted">Inspect the artist page; detach anything wrong there.
+  Approve = looks fine as-is; Reject = dismissed.</p>
   {{ decide_buttons(item) }}
 </div>
 {% endfor %}
@@ -355,6 +372,35 @@ def artist(artist_id):
             pending=pending_count(conn), demoted_count=demoted_count(conn))
 
 
+@app.route("/artist/<int:artist_id>/detach/<int:account_id>", methods=["POST"])
+def detach(artist_id, account_id):
+    """Remove an account from an artist: membership closes (admin event, so
+    clustering never re-attaches it) and connecting edges become related, so
+    the account stays visible as a connection."""
+    with db.connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            """update artist_accounts set removed_at = now()
+               where artist_id = %s and account_id = %s and removed_at is null""",
+            (artist_id, account_id))
+        cur.execute(
+            """insert into artist_events (artist_id, event, actor, details)
+               values (%s, 'account_removed', 'admin:review-ui', %s)""",
+            (artist_id, json.dumps({"account_id": account_id,
+                                    "reason": "manual_detach"})))
+        cur.execute(
+            """update identity_edges e set claim = 'related', relation_hint = 'manual_detach'
+               where e.claim = 'same_person' and e.status = 'present'
+                 and ((e.target_account_id = %(acc)s and e.source_account_id in
+                       (select account_id from artist_accounts
+                        where artist_id = %(ar)s and removed_at is null))
+                   or (e.source_account_id = %(acc)s and e.target_account_id in
+                       (select account_id from artist_accounts
+                        where artist_id = %(ar)s and removed_at is null)))""",
+            {"acc": account_id, "ar": artist_id})
+        conn.commit()
+    return redirect(url_for("artist", artist_id=artist_id))
+
+
 @app.route("/artist/<int:artist_id>/suppress", methods=["POST"])
 def suppress(artist_id):
     with db.connect() as conn, conn.cursor() as cur:
@@ -445,9 +491,13 @@ def review():
     with db.connect() as conn:
         items = [_enrich(conn, i) for i in
                  q(conn, "select * from review_items where status = 'pending' order by created_at")]
-        merge_items = [i for i in items if i["kind"] in ("cluster_merge", "other")]
+        merge_items = [i for i in items if i["kind"] == "cluster_merge"
+                       or (i["kind"] == "other" and i["payload"].get("type") != "anomaly")]
+        anomaly_items = [i for i in items
+                         if i["kind"] == "other" and i["payload"].get("type") == "anomaly"]
         attach_items = [i for i in items if i["kind"] not in ("cluster_merge", "other")]
         return render_template("review.html", merge_items=merge_items,
+                               anomaly_items=anomaly_items,
                                attach_items=attach_items[:60],
                                attach_total=len(attach_items),
                                pending=len(items), demoted_count=demoted_count(conn))

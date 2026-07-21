@@ -18,6 +18,14 @@ REVIEW_FOLLOWER_THRESHOLD = 10_000
 # Attaches beyond the cap go to review; components beyond it never auto-merge.
 MAX_SAME_PLATFORM = 3
 
+# Anomaly flags for manual review — shapes that suggest a credits/projects
+# page rather than personal links (e.g. a VTuber illustrator's lit.link that
+# lists every client they've drawn for).
+ANOMALY_HUB_FANOUT = 12           # one member hub linking this many accounts
+ANOMALY_HUB_ATTACHED = 10         # members that exist only because a hub listed
+                                  # them (5-7 is a normal personal linktree)
+ANOMALY_RELATED_CONNECTIONS = 15  # sheer connection volume
+
 # No post/repost within this window => the account is labeled dormant.
 # Mirrored in the directory_entries view (migration 0006) — keep in sync.
 DORMANT_AFTER_DAYS = 180
