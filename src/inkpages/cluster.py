@@ -110,6 +110,45 @@ def add_member(conn, artist_id: int, account_id: int, confidence: str,
         )
 
 
+def merge_artists(conn, keeper: int, losers: list[int], actor: str = "pipeline") -> None:
+    """Fold losers into keeper: memberships move (history preserved), losers
+    get merged_into pointers so their slugs can redirect."""
+    with conn.cursor() as cur:
+        for loser in losers:
+            cur.execute(
+                """select account_id, confidence from artist_accounts
+                   where artist_id = %s and removed_at is null""", (loser,))
+            for account_id, confidence in cur.fetchall():
+                cur.execute(
+                    """update artist_accounts set removed_at = now()
+                       where artist_id = %s and account_id = %s and removed_at is null""",
+                    (loser, account_id))
+                cur.execute(
+                    """insert into artist_accounts (artist_id, account_id, confidence, added_by)
+                       select %s, %s, %s, %s
+                       where not exists (select 1 from artist_accounts
+                                         where account_id = %s and removed_at is null)""",
+                    (keeper, account_id, confidence,
+                     "human" if actor.startswith("admin") else "clustering", account_id))
+            cur.execute("update artists set merged_into = %s, updated_at = now() where id = %s",
+                        (keeper, loser))
+            cur.execute(
+                """insert into artist_events (artist_id, event, actor, details)
+                   values (%s, 'merged', %s, %s)""",
+                (loser, actor, json.dumps({"into": keeper})))
+
+
+def flip_to_connection(conn, edge_id: int, hint: str) -> None:
+    """Downgrade a same-person claim to a related connection — best-effort
+    display without blocking on review; re-extraction restores same_person if
+    the evidence later strengthens (e.g. the link becomes reciprocal)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """update identity_edges set claim = 'related', relation_hint = %s
+               where id = %s and claim = 'same_person'""",
+            (hint, edge_id))
+
+
 def pending_review_exists(conn, kind: str, key: str, value) -> bool:
     with conn.cursor() as cur:
         cur.execute(
@@ -247,14 +286,37 @@ def main() -> None:
                 continue
             artist_ids = {membership[m] for m in members if m in membership}
             if len(artist_ids) > 1:
-                if not review_exists(conn, "cluster_merge", "artist_ids",
-                                     json.dumps(sorted(artist_ids))):
-                    add_review_item(conn, "cluster_merge", {
-                        "artist_ids": json.dumps(sorted(artist_ids)),
-                        "account_ids": sorted(members),
-                    }, stats)
-                continue
-            if artist_ids:
+                # Components are built from RECIPROCAL links only, so two
+                # existing artists in one component are bidirectionally
+                # connected (possibly through a hub) — auto-merge, unless the
+                # combined cluster would breach the same-platform cap or more
+                # than two artists are involved.
+                ids = sorted(artist_ids)
+                combined: Counter = Counter()
+                for aid in ids:
+                    combined += platform_counts[aid]
+                for m in members:
+                    if m not in membership and m in accounts:
+                        combined[accounts[m]["platform_slug"]] += 1
+                if len(ids) == 2 and (not combined or
+                                      max(combined.values()) <= policy.MAX_SAME_PLATFORM):
+                    keeper, loser = ids
+                    merge_artists(conn, keeper, [loser])
+                    for acc, aid in list(membership.items()):
+                        if aid == loser:
+                            membership[acc] = keeper
+                    platform_counts[keeper] = combined
+                    stats["auto_merged"] += 1
+                    artist_id = keeper
+                else:
+                    if not review_exists(conn, "cluster_merge", "artist_ids",
+                                         json.dumps(ids)):
+                        add_review_item(conn, "cluster_merge", {
+                            "artist_ids": json.dumps(ids),
+                            "account_ids": sorted(members),
+                        }, stats)
+                    continue
+            elif artist_ids:
                 artist_id = artist_ids.pop()
             else:
                 anchor = max((accounts[m] for m in members),
@@ -422,11 +484,13 @@ def main() -> None:
             if db.is_suppressed(conn, tgt):
                 continue
             followers = accounts[tgt]["followers_count"] or 0
-            # OAuth-verified links are exempt from suspicion checks in the
-            # forward direction too — the platform vouches, prominence is
-            # irrelevant. Ordinary (user-entered) profile fields fall through
-            # to the normal one-directional rules below.
+            # One-directional resolution — never a review item. Best effort:
+            # strong-enough evidence attaches; anything doubtful becomes a
+            # related connection (visible on the artist page), which
+            # re-extraction upgrades back to same_person if the link later
+            # reciprocates — at which point the mutual path auto-merges.
             if edge["evidence_type"] == "profile_field" and edge["relation_hint"] == "oauth":
+                # OAuth-verified: the platform vouches; prominence irrelevant.
                 if cap_ok(src_artist, tgt):
                     add_member(conn, src_artist, tgt, "near_proof",
                                {"via": "platform_verified_link", "edge_id": edge["id"]})
@@ -434,37 +498,28 @@ def main() -> None:
                     note_attach(src_artist, tgt)
                     stats["members_added"] += 1
                 continue
-            # Mention-based alt claims ("nsfw alt: @x") are the weakest
-            # same-person evidence — always a human call, never an auto-attach.
             if edge["evidence_type"] == "bio_mention":
-                if not review_exists(conn, "one_directional_attach", "edge_id", edge["id"]):
-                    add_review_item(conn, "one_directional_attach", {
-                        "edge_id": edge["id"],
-                        "artist_id": src_artist,
-                        "source_account_id": src,
-                        "target_account_id": tgt,
-                        "target_followers": followers,
-                        "evidence": "bio_mention",
-                    }, stats)
+                # Confidently-regexed alt claims (サブ垢▶@x etc.) auto-attach;
+                # alts are legitimately a second same-platform account, so
+                # only the hard cap applies.
+                if cap_ok(src_artist, tgt):
+                    add_member(conn, src_artist, tgt, "strong",
+                               {"via": "alt_mention", "edge_id": edge["id"]})
+                    membership[tgt] = src_artist
+                    note_attach(src_artist, tgt)
+                    stats["alt_mentions_attached"] += 1
+                else:
+                    flip_to_connection(conn, edge["id"], "over_platform_cap")
+                    stats["flipped_over_cap"] += 1
                 continue
-            # A one-directional bio link may bring an artist their FIRST
-            # account on a platform; a second same-platform account through
-            # this weak path is usually a project/collab — human decides.
             second_same_platform = \
                 platform_counts[src_artist][accounts[tgt]["platform_slug"]] >= 1
-            if (followers >= policy.REVIEW_FOLLOWER_THRESHOLD
-                    or second_same_platform or not cap_ok(src_artist, tgt)):
-                if not review_exists(conn, "one_directional_attach", "edge_id", edge["id"]):
-                    add_review_item(conn, "one_directional_attach", {
-                        "edge_id": edge["id"],
-                        "artist_id": src_artist,
-                        "source_account_id": src,
-                        "target_account_id": tgt,
-                        "target_followers": followers,
-                        "reason": ("prominent_target"
-                                   if followers >= policy.REVIEW_FOLLOWER_THRESHOLD
-                                   else "second_same_platform"),
-                    }, stats)
+            if followers >= policy.REVIEW_FOLLOWER_THRESHOLD:
+                flip_to_connection(conn, edge["id"], "unreciprocated_prominent")
+                stats["flipped_prominent"] += 1
+            elif second_same_platform or not cap_ok(src_artist, tgt):
+                flip_to_connection(conn, edge["id"], "secondary_link")
+                stats["flipped_secondary"] += 1
             else:
                 add_member(conn, src_artist, tgt, "strong",
                            {"via": "one_directional", "edge_id": edge["id"]})

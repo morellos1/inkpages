@@ -174,8 +174,13 @@ class Mention:
 # "nsfw"/"🔞" alone are not enough — "nsfw alt" clusters, a bare "nsfw @x"
 # does not.
 _ALT_TOKENS = ("alt", "main", "side", "backup", "moved", "sub acc", "subacc",
-               "2nd acc", "second acc", "other acc", "aka", "旧アカ", "サブ垢",
-               "別垢", "本垢", "移転")
+               "2nd acc", "second acc", "other acc", "aka",
+               # JP: sub/alt/back/main accounts, migration targets
+               "旧アカ", "新アカ", "別アカ", "サブ垢", "サブアカ", "別垢",
+               "本垢", "裏垢", "新垢", "旧垢", "メイン垢", "移転", "移行先",
+               "避難先", "支店", "本店",
+               # KR / ZH
+               "부계", "본계", "小号", "大号", "主号", "备用号")
 _RELATED_TOKENS = ("pfp", "icon", "banner", "header", "art by", "artist",
                    "partner", "bf", "gf", "wife", "husband", "friend",
                    "絵師", "アイコン")

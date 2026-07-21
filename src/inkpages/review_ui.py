@@ -165,9 +165,19 @@ puts an artist back in the directory and permanently exempts them from auto-demo
 
 "review.html": """{% extends "base.html" %}{% block content %}
 {% macro decide_buttons(item) %}
+  <label class="muted"><input type="checkbox" name="items" value="{{ item.id }}" form="bulk"> select</label>
   <form class="inline" method="post" action="{{ url_for('decide', item_id=item.id, decision='approve') }}"><button class="ok">Approve</button></form>
   <form class="inline" method="post" action="{{ url_for('decide', item_id=item.id, decision='reject') }}"><button class="no">Reject</button></form>
 {% endmacro %}
+<form id="bulk" method="post" action="{{ url_for('bulk_decide') }}"></form>
+<div class="card" style="position:sticky;top:0;z-index:5">
+  <button type="button" onclick="document.querySelectorAll('input[name=items]').forEach(c=>c.checked=true)">Select all</button>
+  <button type="button" onclick="document.querySelectorAll('input[name=items]').forEach(c=>c.checked=false)">Clear</button>
+  <button class="ok" form="bulk" name="decision" value="approve"
+          onclick="return confirm('Approve all selected?')">Approve selected</button>
+  <button class="no" form="bulk" name="decision" value="reject"
+          onclick="return confirm('Reject all selected?')">Reject selected</button>
+</div>
 <h1>Merge decisions <span class="muted">({{ merge_items|length }})</span></h1>
 {% if not merge_items %}<p class="muted">No merge decisions pending.</p>{% endif %}
 {% for item in merge_items %}
@@ -473,40 +483,42 @@ def _approve(conn, item):
             if account and cur.fetchone() is None:
                 create_artist(conn, account[0], actor="admin:review-ui")
         elif item["kind"] == "cluster_merge":
+            from .cluster import merge_artists
+
             ids = sorted(json.loads(payload["artist_ids"]))
-            keeper, losers = ids[0], ids[1:]
-            for loser in losers:
-                cur.execute("""select account_id, confidence from artist_accounts
-                               where artist_id = %s and removed_at is null""", (loser,))
-                for account_id, confidence in cur.fetchall():
-                    cur.execute("""update artist_accounts set removed_at = now()
-                                   where artist_id = %s and account_id = %s and removed_at is null""",
-                                (loser, account_id))
-                    cur.execute("""insert into artist_accounts (artist_id, account_id, confidence, added_by)
-                                   values (%s, %s, %s, 'human')
-                                   on conflict (account_id) where removed_at is null do nothing""",
-                                (keeper, account_id, confidence))
-                cur.execute("update artists set merged_into = %s, updated_at = now() where id = %s",
-                            (keeper, loser))
-                cur.execute("""insert into artist_events (artist_id, event, actor, details)
-                               values (%s, 'merged', 'admin:review-ui', %s)""",
-                            (loser, json.dumps({"into": keeper})))
+            merge_artists(conn, ids[0], ids[1:], actor="admin:review-ui")
+
+
+def _decide_one(conn, item_id: int, decision: str) -> None:
+    item = q(conn, "select * from review_items where id = %s and status = 'pending'", (item_id,))
+    if not item:
+        return
+    if decision == "approve":
+        _approve(conn, item[0])
+    with conn.cursor() as cur:
+        cur.execute("""update review_items
+                       set status = %s, resolved_at = now(), decided_by = 'admin:review-ui'
+                       where id = %s""",
+                    ("approved" if decision == "approve" else "rejected", item_id))
 
 
 @app.route("/review/<int:item_id>/<decision>", methods=["POST"])
 def decide(item_id, decision):
     assert decision in ("approve", "reject")
     with db.connect() as conn:
-        item = q(conn, "select * from review_items where id = %s and status = 'pending'", (item_id,))
-        if item:
-            if decision == "approve":
-                _approve(conn, item[0])
-            with conn.cursor() as cur:
-                cur.execute("""update review_items
-                               set status = %s, resolved_at = now(), decided_by = 'admin:review-ui'
-                               where id = %s""",
-                            ("approved" if decision == "approve" else "rejected", item_id))
-            conn.commit()
+        _decide_one(conn, item_id, decision)
+        conn.commit()
+    return redirect(url_for("review"))
+
+
+@app.route("/review/bulk", methods=["POST"])
+def bulk_decide():
+    decision = request.form.get("decision")
+    assert decision in ("approve", "reject")
+    with db.connect() as conn:
+        for item_id in request.form.getlist("items"):
+            _decide_one(conn, int(item_id), decision)
+        conn.commit()
     return redirect(url_for("review"))
 
 
