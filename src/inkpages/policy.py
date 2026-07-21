@@ -34,6 +34,10 @@ ANOMALY_HUB_FANOUT = 12           # one member hub linking this many accounts
 ANOMALY_HUB_ATTACHED = 10         # members that exist only because a hub listed
                                   # them (5-7 is a normal personal linktree)
 ANOMALY_RELATED_CONNECTIONS = 15  # sheer connection volume
+ANOMALY_CROSS_ARTIST_REFS = 3     # a MEMBER account with edges touching this
+                                  # many OTHER artists — either a junk shared
+                                  # target that slipped in (tumblr.com/contact)
+                                  # or several unmerged alts of one person
 
 # No post/repost within this window => the account is labeled dormant.
 # Mirrored in the directory_entries view (migration 0006) — keep in sync.

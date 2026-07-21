@@ -1058,6 +1058,13 @@ def artist(artist_id):
                    (artist_id,))
         suppressed_rows = q(conn, """select * from suppressions
                                      where artist_id = %s and lifted_at is null limit 1""", (artist_id,))
+        # Title matches the directory's name rule (migration 0024): the
+        # top-display_rank visible account wins (twitter/bsky over pixiv),
+        # regardless of membership confidence.
+        artist["display_name"] = next(
+            (a["display_name"] or a["handle"] for a in accounts
+             if a["status"] in ("active", "unknown") and (a["display_name"] or a["handle"])),
+            artist["display_name"])
         return render_template(
             "artist.html", artist=artist, accounts=accounts, signals=signals,
             connections=connections, events=events,

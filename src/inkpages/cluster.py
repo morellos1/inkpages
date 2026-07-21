@@ -806,6 +806,48 @@ def main() -> None:
                         "reasons": reasons,
                     }, stats)
 
+        # 5b. Cross-artist reference anomaly: a MEMBER account whose edges
+        # touch several OTHER artists. Two shapes hide here and only a human
+        # can tell them apart: a junk shared target that slipped into a
+        # cluster before the guards existed (tumblr.com/contact), or one
+        # person's unmerged alt-artists all pointing at each other.
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                """select aa.artist_id, ar.public_slug, aa.account_id,
+                          p.slug || ':' || a.handle as account_label,
+                          count(distinct oaa.artist_id) as other_artists,
+                          array_agg(distinct oar.public_slug) as referencing_slugs
+                   from artist_accounts aa
+                   join artists ar on ar.id = aa.artist_id
+                        and ar.status = 'active' and ar.merged_into is null
+                   join accounts a on a.id = aa.account_id
+                   join platforms p on p.id = a.platform_id
+                   join identity_edges e on e.status = 'present'
+                        and aa.account_id in (e.source_account_id, e.target_account_id)
+                   join artist_accounts oaa on oaa.removed_at is null
+                        and oaa.account_id = case when e.source_account_id = aa.account_id
+                                                  then e.target_account_id
+                                                  else e.source_account_id end
+                        and oaa.artist_id <> aa.artist_id
+                   join artists oar on oar.id = oaa.artist_id
+                   where aa.removed_at is null
+                   group by 1, 2, 3, 4
+                   having count(distinct oaa.artist_id) >= %s""",
+                (policy.ANOMALY_CROSS_ARTIST_REFS,),
+            )
+            for row in cur.fetchall():
+                if review_exists(conn, "other", "account_id", row["account_id"]):
+                    continue
+                add_review_item(conn, "other", {
+                    "type": "anomaly",
+                    "artist_id": row["artist_id"],
+                    "public_slug": row["public_slug"],
+                    "account_id": row["account_id"],
+                    "reasons": {"cross_artist_refs": row["other_artists"],
+                                "account": row["account_label"],
+                                "referenced_by": ", ".join(row["referencing_slugs"])},
+                }, stats)
+
         conn.commit()
     print("done:", dict(stats))
 
