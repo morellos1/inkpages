@@ -146,6 +146,10 @@ def merge_artists(conn, keeper: int, losers: list[int], actor: str = "pipeline")
                      "human" if actor.startswith("admin") else "clustering", account_id))
             cur.execute("update artists set merged_into = %s, updated_at = now() where id = %s",
                         (keeper, loser))
+            # Collapse chains: anything that redirected to the loser now
+            # redirects straight to the keeper (slug redirects stay one hop).
+            cur.execute("update artists set merged_into = %s where merged_into = %s and id <> %s",
+                        (keeper, loser, keeper))
             details = {"into": keeper}
             if admin_blocked:
                 details["admin_blocked_accounts"] = admin_blocked

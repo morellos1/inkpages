@@ -74,9 +74,12 @@ do $$
 declare
     n int;
 begin
-    select count(*) into n from directory_entries;
+    -- Scoped to the fixture slugs so the smoke test also runs against a
+    -- populated dev database, not only a fresh one.
+    select count(*) into n from directory_entries
+    where public_slug in ('inkwitch', 'brushlord');
     if n <> 1 then
-        raise exception 'expected exactly 1 directory entry (suppressed artist excluded), got %', n;
+        raise exception 'expected exactly 1 fixture entry (suppressed artist excluded), got %', n;
     end if;
 
     select count(*) into n from directory_entries where public_slug = 'inkwitch' and no_ai_attested;
@@ -121,7 +124,53 @@ begin
         raise exception 'LINEAGE VIOLATION: directory_entries depends on discovery_hints';
     end if;
 
+    -- Provenance is structural (migration 0022): edges and attestations
+    -- cannot exist without an evidence snapshot.
+    select count(*) into n
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name in ('identity_edges', 'attestations')
+      and column_name = 'evidence_snapshot_id'
+      and is_nullable = 'YES';
+    if n <> 0 then
+        raise exception 'evidence_snapshot_id must be NOT NULL on identity_edges and attestations';
+    end if;
+
+    -- merged_into never chains: a redirect pointer always lands on a live artist.
+    select count(*) into n
+    from artists a join artists b on b.id = a.merged_into
+    where b.merged_into is not null;
+    if n <> 0 then
+        raise exception 'merged_into chain found: % redirect(s) point at a merged artist', n;
+    end if;
+
     raise notice 'smoke test passed';
+end
+$$;
+
+-- Suppression scope (migration 0022): an ACCOUNT-scoped suppression hides the
+-- account but never the whole artist; only artist-scoped removes the artist.
+insert into suppressions (account_id, reason, note, requested_by)
+values ((select id from accounts where handle = 'inkwitch.ig'),
+        'impersonation', 'fake IG', 'smoke');
+
+do $$
+declare
+    n int;
+begin
+    select count(*) into n from directory_entries where public_slug = 'inkwitch';
+    if n <> 1 then
+        raise exception 'account-scoped suppression must not remove the artist';
+    end if;
+
+    select count(*) into n
+    from directory_entries, jsonb_array_elements(accounts) e
+    where public_slug = 'inkwitch' and e ->> 'platform' = 'instagram';
+    if n <> 0 then
+        raise exception 'account-scoped suppression must hide the suppressed account';
+    end if;
+
+    raise notice 'suppression-scope test passed';
 end
 $$;
 
