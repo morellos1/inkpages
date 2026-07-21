@@ -18,8 +18,12 @@ from psycopg.rows import dict_row
 from . import db
 import re
 
-from .extract import (find_commission_status, find_email, find_platform_links,
-                      find_short_links, find_website_links)
+from .extract import (SHORTENER_DOMAINS, find_commission_status, find_email,
+                      find_platform_links, find_short_links, find_website_links)
+
+# SQL-side prefilter for snapshots that mention any shortener — kept in sync
+# with find_short_links by deriving from the same domain list.
+_SHORTENER_SCAN_RE = "(%s)/" % "|".join(re.escape(d) for d in SHORTENER_DOMAINS)
 
 _TAG_STRIP = re.compile(r"<(?:script|style)[^>]*>.*?</(?:script|style)>|<[^>]+>",
                         re.IGNORECASE | re.DOTALL)
@@ -102,8 +106,9 @@ def resolve_shorteners(conn, client, platforms, stats):
                       coalesce(s.bio_text, '') || ' ' || coalesce(s.raw ->> 'location', '') as scan_text
                from account_snapshots s
                where coalesce(s.bio_text, '') || ' ' || coalesce(s.raw ->> 'location', '')
-                     ~* '(t\\.co|bit\\.ly|tinyurl\\.com|goo\\.gl)/'
-               order by s.account_id, s.captured_at desc"""
+                     ~* %s
+               order by s.account_id, s.captured_at desc""",
+            (_SHORTENER_SCAN_RE,),
         )
         rows = cur.fetchall()
     with conn.cursor() as cur:

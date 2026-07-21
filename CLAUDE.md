@@ -16,6 +16,23 @@ A full app+DB audit ran on 2026-07-21; all fixes landed (5 commits: invariant
 fixes, migration 0022/0023 hardening, edge-churn fixes, review-UI
 CSRF/perf, cleanup). Key new behavior:
 
+- **Migration 0024 (directory polish)**: `directory_entries.display_name` is
+  derived from the top-`display_rank` visible account (twitter > bluesky >
+  hubs > skeb > pixiv, fallback handle then `artists.display_name`); new
+  `hydrated_at` column (newest snapshot of a member twitter account, else
+  newest overall) backs the sortable one-line "updated" column. Directory is
+  **SFW by default** — 18+ artists appear only via the "show 18+" filter
+  toggle (`show18=1`) or the 18+-only flag. `review_ui` honors `$PORT`
+  (launch.json has `autoPort: true`).
+- **Shorteners are centralized in `extract.SHORTENER_DOMAINS`** (t.co, bit.ly,
+  tinyurl, goo.gl, x.gd, onl.tw/sc, buly.kr, **pixiv.me**) — drives
+  `find_short_links`, the `resolve_shorteners` SQL scan (x.gd was missing
+  there: 152 junk website accounts, all edges retracted), and the
+  `_NON_WEBSITE_DOMAINS` blocklist (also newly blocks dmm.co.jp,
+  toranoana.jp, piccoma.com storefront pages). pixiv.me resolution recovered
+  ~121 real pixiv identity edges; a one-off backfill re-resolved short links
+  that arrived via structured profile fields (outside the bio scan).
+
 - **Rejected `cluster_merge` pairs never auto-merge again** (`merge_rejected`
   checked in step 2 + `try_reciprocal_artist_merge`); step-2 auto-merges
   resolve pending items (`pipeline:reciprocal_component`).
@@ -50,10 +67,11 @@ CSRF/perf, cleanup). Key new behavior:
 
 ## Previous state (2026-07-21 morning)
 
-- **2,596 listed artists** (post-audit healing merged duplicates; +89 hidden
-  by the sub-50-follower cull), ~13.7k accounts, 1,046 flagged 18+, 119
-  no-AI badged. Languages: ~1,847 ja /
-  ~637 en / ~101 zh / ~22 ko.
+- **2,601 listed artists** (post-audit healing merged duplicates; +89 hidden
+  by the sub-50-follower cull; +5 from the 2026-07-21 shortener-recovery
+  pass), ~13.75k accounts, 1,046 flagged 18+, 118
+  no-AI badged. Languages: ~1,844 ja /
+  ~693 en / ~102 zh / ~24 ko.
 - **Discovery live**: Bluesky (free), Skeb (free — Algolia ranking +
   `--hydrate-known`), Pixiv (free — SFW rankings + **tag-search harvest**:
   `--tag オリジナル --tag-mode r18 --tag-order popular_d --new-only --max-new N`;
@@ -70,8 +88,8 @@ CSRF/perf, cleanup). Key new behavior:
 - **Not built yet**: stratified ranking runs, Bluesky list/starter-pack
   expansion, Graphtreon/Patreon, ArtStation/Cara/DeviantArt/Tumblr, the public
   site.
-- Review queue: **27 pending** — 6 `cluster_merge` + 21 anomalies/other
-  (post-audit counts; 20 artists additionally sit in `needs_review`).
+- Review queue: **28 pending** — 7 `cluster_merge` + 21 anomalies/other
+  (post-shortener-pass counts; 19 artists additionally sit in `needs_review`).
   Artist-level cyclical references now auto-merge (see clustering model), which
   drained 10 of the old 21 merge conflicts. **99 more unresolved same-person
   claims across 74 artists** are now visible+attachable on artist pages (see

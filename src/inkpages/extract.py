@@ -76,8 +76,17 @@ BSKY_NSFW_SELF_LABELS = {"porn", "sexual", "nudity"}
 
 # --- shortened links -------------------------------------------------------
 
+# One list drives find_short_links, the crawl_links snapshot scan, AND the
+# website-account blocklist below — a domain listed here but absent from
+# _NON_WEBSITE_DOMAINS would mint a junk website account for every short link
+# (the x.gd bug: 152 of them). pixiv.me is a per-user redirect alias, not a
+# generic shortener, but resolving it yields the artist's real pixiv profile.
+SHORTENER_DOMAINS = ("t.co", "bit.ly", "tinyurl.com", "goo.gl", "x.gd",
+                     "onl.tw", "onl.sc", "buly.kr", "pixiv.me")
+
 _SHORTENER = re.compile(
-    r"(?:https?://)?(?:t\.co|bit\.ly|tinyurl\.com|goo\.gl|x\.gd)/[A-Za-z0-9]+", re.I)
+    r"(?:https?://)?(?:%s)/[A-Za-z0-9_\-]+"
+    % "|".join(re.escape(d) for d in SHORTENER_DOMAINS), re.I)
 
 
 def find_short_links(text: str | None) -> list[str]:
@@ -322,8 +331,7 @@ _PLATFORM_DOMAINS = {
 }
 # Shorteners (opaque), commerce/utility noise, and booru domains — boorus are
 # hint-only by hard rule and must never enter the graph as artist links.
-_NON_WEBSITE_DOMAINS = _PLATFORM_DOMAINS | {
-    "t.co", "bit.ly", "tinyurl.com", "goo.gl",
+_NON_WEBSITE_DOMAINS = _PLATFORM_DOMAINS | set(SHORTENER_DOMAINS) | {
     "google.com", "forms.gle", "docs.google.com", "drive.google.com",
     "open.spotify.com", "spotify.com", "amazon.com", "amazon.co.jp",
     "amzn.to", "amzn.asia", "apple.com", "paypal.me", "paypal.com",
@@ -331,6 +339,8 @@ _NON_WEBSITE_DOMAINS = _PLATFORM_DOMAINS | {
     "donmai.us", "gelbooru.com", "e621.net", "rule34.xxx",
     "safebooru.org", "yande.re", "konachan.com", "sankakucomplex.com",
     "gmail.com", "amazon.jp", "melonbooks.co.jp", "youtube.jp",
+    # Storefront/publisher listing pages, not personal sites.
+    "dmm.co.jp", "toranoana.jp", "piccoma.com",
 }
 
 
