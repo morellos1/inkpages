@@ -79,14 +79,75 @@ TEMPLATES = {
   .stat-chip.good { background: #d7f4dd; color: #14532d; }
   .stat-chip.warn { background: #fef3c7; color: #92400e; }
   .stat-chip.bad { background: #fde2e2; color: #7f1d1d; }
+  /* Pipeline flow diagram (sources/rules pages) */
+  .flow { display: flex; flex-wrap: wrap; gap: .4rem; align-items: stretch; margin: 1rem 0 1.6rem; }
+  .flowbox { flex: 1 1 10rem; background: #fff; border: 2px solid #14213d; border-radius: 10px; padding: .7rem .9rem; min-width: 11rem; position: relative; }
+  .flowbox b { display: block; margin-bottom: .25rem; }
+  .flowbox .muted { font-size: .85em; }
+  .flowarrow { align-self: center; font-size: 1.6em; color: #fca311; font-weight: 700; padding: 0 .1rem; }
+  .flowbox .stepnum { position: absolute; top: -.8rem; left: .7rem; background: #fca311; color: #14213d; font-weight: 800; border-radius: 50%; width: 1.6rem; height: 1.6rem; display: flex; align-items: center; justify-content: center; }
+  /* Horizontal bars for source volumes */
+  .bar-row { display: grid; grid-template-columns: 14rem 1fr 9rem; gap: .8rem; align-items: center; margin: .35rem 0; }
+  .bar-track { background: #eef1f7; border-radius: 6px; height: 1.35rem; position: relative; }
+  .bar-fill { background: linear-gradient(90deg, #14213d, #3a5da8); height: 100%; border-radius: 6px; min-width: 2px; }
+  .bar-fill.follow { background: linear-gradient(90deg, #9aa7c7, #c3cde4); }
+  /* Rule diagrams: nodes, arrows, verdicts */
+  .diagram { display: flex; flex-wrap: wrap; gap: .35rem; align-items: center; margin: .5rem 0 .2rem; }
+  .node { background: #eef1f7; border: 1.5px solid #33415c; border-radius: 8px; padding: .1rem .55rem; font-size: .88em; white-space: nowrap; }
+  .node.acct2 { border-style: dashed; }
+  .arrow { color: #33415c; font-weight: 700; }
+  .verdict { border-radius: 9px; padding: .05rem .6rem; font-weight: 700; font-size: .85em; white-space: nowrap; }
+  .verdict.ok { background: #d7f4dd; color: #14532d; }
+  .verdict.no { background: #fde2e2; color: #7f1d1d; }
+  .verdict.warn { background: #fef3c7; color: #92400e; }
+  .rulegrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(21rem, 1fr)); gap: .9rem; }
+  .rulegrid .card { margin-bottom: 0; }
+  .livecount { float: right; font-size: .8em; color: #6b7280; }
 </style></head><body>
 <header>
   <a class="brand" href="{{ url_for('index') }}">inkpages review</a>
   <a href="{{ url_for('index') }}">Directory</a>
   <a href="{{ url_for('review') }}">Review queue {% if pending %}<span class="pill">{{ pending }}</span>{% endif %}</a>
   <a href="{{ url_for('demoted') }}">Demoted {% if demoted_count %}<span class="pill">{{ demoted_count }}</span>{% endif %}</a>
+  <a href="{{ url_for('sources') }}">Sources</a>
+  <a href="{{ url_for('rules') }}">Rules</a>
 </header>
 <main>{% block content %}{% endblock %}</main>
+<dialog id="confirm-dialog" style="border:0;border-radius:10px;padding:1.2rem 1.4rem;max-width:26rem;box-shadow:0 12px 40px rgba(0,0,0,.25)">
+  <p class="dlg-msg" style="margin:0 0 1rem"></p>
+  <div style="display:flex;gap:.6rem;justify-content:flex-end">
+    <button type="button" class="dlg-cancel">Cancel</button>
+    <button type="button" class="dlg-ok warn">Confirm</button>
+  </div>
+</dialog>
+<script>
+// In-page modal confirmation for any form[data-confirm] (or a submit button
+// carrying its own data-confirm) — replaces the native confirm() popup.
+(function () {
+  var dlg = document.getElementById('confirm-dialog');
+  dlg.querySelector('.dlg-cancel').addEventListener('click', function () { dlg.close(); });
+  document.querySelectorAll('form').forEach(function (f) {
+    f.addEventListener('submit', function (ev) {
+      var msg = (ev.submitter && ev.submitter.dataset.confirm) || f.dataset.confirm;
+      if (!msg || f.dataset.confirmed) return;
+      ev.preventDefault();
+      var submitter = ev.submitter;
+      dlg.querySelector('.dlg-msg').textContent = msg;
+      dlg.querySelector('.dlg-ok').onclick = function () {
+        dlg.close();
+        f.dataset.confirmed = '1';
+        if (submitter && submitter.name) {
+          var h = document.createElement('input');
+          h.type = 'hidden'; h.name = submitter.name; h.value = submitter.value;
+          f.appendChild(h);
+        }
+        f.submit();
+      };
+      dlg.showModal();
+    });
+  });
+})();
+</script>
 <script>
 function toggleBio(btn) {
   var box = btn.previousElementSibling;
@@ -263,22 +324,28 @@ document.querySelectorAll('.bio').forEach(function (box) {
   <td>{{ acc.contact_email or "—" }}</td>
   <td>{{ m.bio(acc.bio) }}</td>
   <td><form class="inline" method="post" action="{{ url_for('detach', artist_id=artist.id, account_id=acc.id) }}"
-       onsubmit="return confirm('Detach {{ acc.handle }} from this artist? It becomes a connection and will never auto-reattach.')">
+       data-confirm="Detach {{ acc.handle }} from this artist? It becomes a connection and will never auto-reattach.">
        <button class="no">detach</button></form></td>
 </tr>{% endfor %}</table>
 
-<h2>Connections (related, never merged)</h2>
-<table><tr><th>direction</th><th>account</th><th>followers</th><th>hint</th><th>evidence</th><th></th></tr>
+<h2>Connections</h2>
+<p class="muted">Related links never merge on their own. An <b>unresolved same-person
+claim</b> means the evidence says same person but clustering could not act alone
+(the account belongs to another artist, or a guard held it back) — confirm to
+attach/merge.</p>
+<table><tr><th>direction</th><th>account</th><th>belongs to</th><th>followers</th><th>claim</th><th>evidence</th><th></th></tr>
 {% for c in connections %}<tr>
   <td>{{ c.direction }}</td>
   <td><span class="chip">{{ c.other_platform }}: {{ m.acct_link(c.other_platform, c.other_handle, c.other_profile_url, c.other_display_name) }}</span></td>
+  <td>{% if c.other_artist_id %}<a href="{{ url_for('artist', artist_id=c.other_artist_id) }}">{{ c.other_artist_slug }}</a>{% else %}<span class="muted">unattached</span>{% endif %}</td>
   <td>{{ "{:,}".format(c.other_followers) if c.other_followers else "—" }}</td>
-  <td>{{ c.relation_hint or "—" }}</td>
+  <td>{% if c.claim == 'same_person' %}<span class="chip badge-waitlist">same-person claim — unresolved</span>
+      {% else %}{{ c.relation_hint or "related" }}{% endif %}</td>
   <td class="muted">{{ c.matched_text or c.evidence_url or "" }}</td>
   <td><form class="inline" method="post" action="{{ url_for('confirm_connection', artist_id=artist.id, account_id=c.other_id) }}"
-       onsubmit="return confirm('Confirm {{ c.other_platform }}:{{ c.other_handle }} as the same person and attach it to this artist?')">
-       <button class="ok">confirm</button></form></td>
-</tr>{% else %}<tr><td colspan="6" class="muted">none</td></tr>{% endfor %}</table>
+       data-confirm="{% if c.other_artist_id %}Merge artist {{ c.other_artist_slug }} (via {{ c.other_platform }}:{{ c.other_handle }}) into this artist?{% else %}Confirm {{ c.other_platform }}:{{ c.other_handle }} as the same person and attach it to this artist?{% endif %}">
+       <button class="ok">{{ 'merge' if c.other_artist_id else 'attach' }}</button></form></td>
+</tr>{% else %}<tr><td colspan="7" class="muted">none</td></tr>{% endfor %}</table>
 
 <h2>Signals</h2>
 <table><tr><th>type</th><th>signal</th><th>matched</th><th>account</th><th>first seen</th><th>last seen</th></tr>
@@ -310,6 +377,142 @@ puts an artist back in the directory and permanently exempts them from auto-demo
 </tr>{% endfor %}</table>
 {% endblock %}""",
 
+"sources.html": """{% extends "base.html" %}{% block content %}
+<h1>Where the directory comes from</h1>
+<p>Every artist here published their own links — we only collect and connect what
+they said about themselves. It happens in four steps:</p>
+<div class="flow">
+  <div class="flowbox"><span class="stepnum">1</span><b>Discover</b>
+    <span class="muted">Public rankings, art feeds and popular-tag searches surface
+    artists. Being on a curated list is itself evidence they're an artist.</span></div>
+  <span class="flowarrow">→</span>
+  <div class="flowbox"><span class="stepnum">2</span><b>Enrich</b>
+    <span class="muted">We fetch each profile (bio, followers, links), resolve
+    shorteners, and crawl link hubs (Linktree, Carrd, potofu…) they point to.</span></div>
+  <span class="flowarrow">→</span>
+  <div class="flowbox"><span class="stepnum">3</span><b>Cluster</b>
+    <span class="muted">Accounts that point at each other become one artist.
+    Every join keeps its evidence — which page said it, when.</span></div>
+  <span class="flowarrow">→</span>
+  <div class="flowbox"><span class="stepnum">4</span><b>Publish</b>
+    <span class="muted">The artist appears with their accounts and — only if they
+    said it themselves — a "no AI" badge. Opting out is permanent.</span></div>
+</div>
+
+<h2>Discovery sources</h2>
+<p class="muted"><b>Primary sources</b> put an artist in the directory by
+themselves. <b>Follow-on sources</b> are accounts we met while following an
+artist's own links — they only appear as part of an artist, never alone.</p>
+{% for s in sources %}
+<div class="card">
+  <div class="bar-row">
+    <div><b>{{ s.label }}</b><br><span class="muted">{{ s.source }}</span></div>
+    <div class="bar-track"><div class="bar-fill {{ 'follow' if not s.primary }}"
+         style="width: {{ s.pct }}%"></div></div>
+    <div><b>{{ "{:,}".format(s.artists) }}</b> artists<br>
+         <span class="muted">{{ "{:,}".format(s.accounts) }} accounts</span></div>
+  </div>
+  <p class="muted" style="margin:.4rem 0 0">{{ s.description }}</p>
+  <div style="margin-top:.4rem">
+    <span class="chip">{{ 'primary source' if s.primary else 'follow-on' }}</span>
+    <span class="chip">{{ s.cost }}</span>
+    {% for r in s.rules %}<span class="chip badge-waitlist">{{ r }}</span>{% endfor %}
+  </div>
+</div>
+{% endfor %}
+{% endblock %}""",
+
+"rules.html": """{% extends "base.html" %}{% block content %}
+<h1>How accounts become artists — the rules</h1>
+<p>Identity here is a graph: every profile is a <b>node</b>, every self-published
+link ("my pixiv is …") is an <b>arrow with evidence attached</b>. Rules decide
+when arrows are strong enough to say two accounts are the same person.
+Solid boxes are accounts we've verified; a dashed box is the account being judged.</p>
+
+<h2>What merges automatically <span class="livecount">{{ c.same_edges }} same-person links live</span></h2>
+<div class="rulegrid">
+<div class="card"><b>Mutual links</b>
+  <div class="diagram"><span class="node">twitter @ame</span><span class="arrow">⇄</span><span class="node acct2">pixiv Ame</span><span class="verdict ok">merge</span></div>
+  <p class="muted">Both profiles point at each other. Nobody can fake both
+  directions, so this is near-proof — the backbone of every artist here.</p></div>
+<div class="card"><b>Cycles across artists</b>
+  <div class="diagram"><span class="node">skeb</span><span class="arrow">→</span><span class="node acct2">pixiv</span><span class="arrow">→</span><span class="node">twitter</span><span class="arrow">→</span><span class="node">skeb</span><span class="verdict ok">merge</span></div>
+  <p class="muted">The links form a loop through any of the artist's accounts —
+  same proof as a mutual pair, just longer.</p></div>
+<div class="card"><b>Platform-verified links</b>
+  <div class="diagram"><span class="node">skeb (OAuth)</span><span class="arrow">→</span><span class="node acct2">twitter</span><span class="verdict ok">attach</span></div>
+  <p class="muted">Skeb verified the Twitter login itself — the platform vouches,
+  not a copyable bio line. Trusted even when the target is famous.</p></div>
+<div class="card"><b>Explicit alt mentions</b>
+  <div class="diagram"><span class="node">bio: "サブ垢▶@x"</span><span class="arrow">→</span><span class="node acct2">@x</span><span class="verdict ok">attach</span></div>
+  <p class="muted">The artist explicitly labels another account as their own
+  alt/sub-account.</p></div>
+<div class="card"><b>Ordinary links to small accounts</b>
+  <div class="diagram"><span class="node">artist bio</span><span class="arrow">→</span><span class="node acct2">&lt;10k followers</span><span class="verdict ok">attach</span></div>
+  <p class="muted">One-directional bio links attach when the target is small —
+  impersonators don't link to nobodies.</p></div>
+<div class="card"><b>Shared-hub reciprocity rescue</b>
+  <div class="diagram"><span class="node acct2">famous acct</span><span class="arrow">→</span><span class="node">artist's own Carrd + Patreon</span><span class="verdict ok">attach</span></div>
+  <p class="muted">A famous target normally stays unattached (see guards) — but if
+  it links back to ≥2 of the artist's own personal pages, that's reciprocity by
+  another route.</p></div>
+</div>
+
+<h2>What gets held back <span class="livecount">{{ c.flipped }} claims currently held as connections</span></h2>
+<div class="rulegrid">
+<div class="card"><b>Famous targets</b>
+  <div class="diagram"><span class="node">small bio</span><span class="arrow">→</span><span class="node acct2">★ 500k followers</span><span class="verdict warn">connection only</span></div>
+  <p class="muted">Impersonators link <i>to</i> famous accounts. Without a link
+  back, this stays a visible connection — it upgrades itself the moment
+  reciprocity appears. {{ c.flip_prominent }} held now.</p></div>
+<div class="card"><b>Second account on one platform</b>
+  <div class="diagram"><span class="node">has twitter ✓</span><span class="arrow">→</span><span class="node acct2">another twitter</span><span class="verdict warn">connection only</span></div>
+  <p class="muted">Alts are real but doubtful by default; a human can confirm in
+  one click. Hard cap: max {{ cap }} accounts per platform per artist
+  ({{ c.flip_secondary }} held).</p></div>
+<div class="card"><b>Community resources</b>
+  <div class="diagram"><span class="node">artist A</span><span class="arrow">↘</span><span class="node acct2">discord/event</span><span class="arrow">↙</span><span class="node">artist B</span><span class="verdict no">never attach</span></div>
+  <p class="muted">If two different artists link the same target one-directionally,
+  it's a shared resource, not anyone's alt.</p></div>
+<div class="card"><b>Same name ≠ same person</b>
+  <div class="diagram"><span class="node">twitter @ame</span><span class="arrow">≟</span><span class="node acct2">pixiv "ame"</span><span class="verdict no">never merge</span></div>
+  <p class="muted">A matching handle alone never merges anything — that's exactly
+  what impersonators copy.</p></div>
+</div>
+
+<h2>What never enters the graph</h2>
+<div class="rulegrid">
+<div class="card"><b>Third-party databases (boorus)</b>
+  <p class="muted">Fan-maintained artist databases are used as hints for where to
+  look, and are structurally excluded from the published directory — there is no
+  join path from hints to the publish view (enforced by a schema test).</p></div>
+<div class="card"><b>Scraped data</b>
+  <p class="muted">Twitter only via its official paid API (${{ "%.2f"|format(c.spent/100) }} of
+  ${{ "%.0f"|format(c.cap_cents/100) }} budget used, every call ledgered).
+  Instagram, Weibo and Facebook are display-only: handles the artist published are
+  shown, their sites are never fetched.</p></div>
+<div class="card"><b>Our opinion about AI use</b>
+  <p class="muted">The "no AI" badge is only ever the artist's own words, quoted
+  with its source. We never classify, and an accepted correction removes the
+  badge quietly — accusations are never published.</p></div>
+</div>
+
+<h2>Humans stay in charge <span class="livecount">{{ c.pending }} decisions waiting</span></h2>
+<div class="rulegrid">
+<div class="card"><b>What asks for review</b>
+  <p class="muted">Conflicts of 3+ artists, anything over the platform cap, giant
+  link components, open-harvest accounts with no artist evidence, and link graphs
+  shaped like credits pages (anomaly flags).</p></div>
+<div class="card"><b>Human decisions are sacred</b>
+  <p class="muted">A manual detach never re-attaches automatically; a suppression
+  (opt-out) survives re-discovery forever ({{ c.suppressed }} active).</p></div>
+<div class="card"><b>Self-healing</b>
+  <p class="muted">All merges trace to stored page snapshots. If a re-parse no
+  longer finds the link that justified a join, the join is undone automatically —
+  and restored if the evidence returns.</p></div>
+</div>
+{% endblock %}""",
+
 "review.html": """{% extends "base.html" %}{% import "_macros.html" as m %}{% block content %}
 {% macro decide_buttons(item) %}
   <label class="muted"><input type="checkbox" name="items" value="{{ item.id }}" form="bulk"> select</label>
@@ -321,9 +524,9 @@ puts an artist back in the directory and permanently exempts them from auto-demo
   <button type="button" onclick="document.querySelectorAll('input[name=items]').forEach(c=>c.checked=true)">Select all</button>
   <button type="button" onclick="document.querySelectorAll('input[name=items]').forEach(c=>c.checked=false)">Clear</button>
   <button class="ok" form="bulk" name="decision" value="approve"
-          onclick="return confirm('Approve all selected?')">Approve selected</button>
+          data-confirm="Approve all selected?">Approve selected</button>
   <button class="no" form="bulk" name="decision" value="reject"
-          onclick="return confirm('Reject all selected?')">Reject selected</button>
+          data-confirm="Reject all selected?">Reject selected</button>
 </div>
 <h1>Merge decisions <span class="muted">({{ merge_items|length }})</span></h1>
 {% if not merge_items %}<p class="muted">No merge decisions pending.</p>{% endif %}
@@ -630,6 +833,99 @@ def demoted():
                                pending=pending_count(conn), demoted_count=len(items))
 
 
+# Plain-words metadata for /sources. Keyed by accounts.discovered_via;
+# primary=False marks follow-on sources (accounts met by following an artist's
+# own links — never listed alone).
+SOURCE_META = {
+    "skeb_ranking": ("Skeb creator rankings", True, "free",
+        "Skeb's own ranked list of commission artists. Skeb also tells us each "
+        "creator's login-verified Twitter — the strongest identity link we have.",
+        ["curated roster", "OAuth Twitter link"]),
+    "pixiv_ranking": ("pixiv rankings", True, "free",
+        "pixiv's weekly/monthly illustration rankings (SFW and R-18).",
+        ["curated roster"]),
+    "pixiv_tag_search": ("pixiv tag search", True, "free",
+        "Popularity-sorted search on big tags like オリジナル (original art), "
+        "with works their author flagged as AI-generated excluded up front.",
+        ["curated by popularity", "AI-flagged works excluded"]),
+    "bsky_feed": ("Bluesky art feeds", True, "free",
+        "Curated art feeds on Bluesky; the account's own profile record can "
+        "also carry self-declared 18+ labels.",
+        ["curated roster"]),
+    "portfolioday": ("#PortfolioDay (Twitter)", True, "paid",
+        "Artists posting the #PortfolioDay hashtag. Anyone can post a hashtag, "
+        "so these additionally need artist evidence (an art-flavored bio or "
+        "their own links) before they're listed alone.",
+        ["open harvest", "needs artist evidence"]),
+    "bio_link": ("Linked from an artist's profile", False, "free",
+        "An account some artist linked in their bio or profile fields. It only "
+        "appears as part of that artist once the link is strong enough — never "
+        "on its own.",
+        ["joins via clustering only"]),
+    "link_hub": ("Found inside a link hub", False, "free",
+        "Accounts listed on an artist's own Linktree / Carrd / potofu / "
+        "lit.link page — treated exactly like bio links.",
+        ["joins via clustering only"]),
+    "bio_mention": ("@-mentioned in a bio", False, "free",
+        "Someone @-mentioned this account. Mostly friends and clients, so it "
+        "only counts when the artist explicitly marks it as their own alt "
+        "account; never fetched until then.",
+        ["weakest signal", "alt-claims only"]),
+    "hydration": ("Direct profile fetch", False, "free/paid",
+        "Accounts first seen when refreshing a known profile.",
+        []),
+}
+
+
+@app.route("/sources")
+def sources():
+    with db.connect() as conn:
+        rows = q(conn, """
+            select a.discovered_via as source, count(distinct a.id) as accounts,
+                   count(distinct aa.artist_id) as artists
+            from accounts a
+            left join artist_accounts aa on aa.account_id = a.id and aa.removed_at is null
+            group by 1""")
+        max_artists = max((r["artists"] for r in rows), default=1) or 1
+        entries = []
+        for r in rows:
+            label, primary, cost, description, rules = SOURCE_META.get(
+                r["source"], (r["source"], False, "free", "", []))
+            entries.append({**r, "label": label, "primary": primary, "cost": cost,
+                            "description": description, "rules": rules,
+                            "pct": max(1, round(100 * r["artists"] / max_artists))})
+        entries.sort(key=lambda e: (not e["primary"], -e["artists"]))
+        return render_template("sources.html", sources=entries,
+                               pending=pending_count(conn), demoted_count=demoted_count(conn))
+
+
+@app.route("/rules")
+def rules():
+    from . import policy
+    from .twitter import spend_cap_cents
+
+    with db.connect() as conn:
+        c = q(conn, """
+            select
+              (select count(*) from identity_edges
+               where status = 'present' and claim = 'same_person') as same_edges,
+              (select count(*) from identity_edges where status = 'present'
+               and claim = 'related' and relation_hint in
+                   ('unreciprocated_prominent', 'secondary_link', 'over_platform_cap')) as flipped,
+              (select count(*) from identity_edges where status = 'present'
+               and claim = 'related' and relation_hint = 'unreciprocated_prominent') as flip_prominent,
+              (select count(*) from identity_edges where status = 'present'
+               and claim = 'related' and relation_hint = 'secondary_link') as flip_secondary,
+              (select count(*) from review_items where status = 'pending') as pending,
+              (select count(distinct artist_id) from suppressions
+               where lifted_at is null) as suppressed,
+              (select coalesce(sum(est_cost_cents), 0) from api_usage
+               where service = 'x_api') as spent""")[0]
+        c["cap_cents"] = spend_cap_cents()
+        return render_template("rules.html", c=c, cap=policy.MAX_SAME_PLATFORM,
+                               pending=c["pending"], demoted_count=demoted_count(conn))
+
+
 @app.route("/artist/<int:artist_id>/restore", methods=["POST"])
 def restore(artist_id):
     with db.connect() as conn, conn.cursor() as cur:
@@ -660,13 +956,14 @@ def artist(artist_id):
             order by p.display_rank, a.followers_count desc nulls last""", (artist_id,))
         connections = q(conn, """
             select distinct on (oa.id)
-                   e.id as edge_id,
+                   e.id as edge_id, e.claim,
                    case when e.source_account_id = m.account_id then 'outgoing' else 'incoming' end as direction,
                    e.relation_hint, e.matched_text, e.evidence_url,
                    oa.id as other_id, oa.handle::text as other_handle,
                    oa.display_name as other_display_name,
                    oa.profile_url as other_profile_url, oa.followers_count as other_followers,
-                   op.slug as other_platform
+                   op.slug as other_platform,
+                   oar.id as other_artist_id, oar.public_slug as other_artist_slug
             from identity_edges e
             join (select account_id from artist_accounts
                   where artist_id = %(id)s and removed_at is null) m
@@ -674,12 +971,18 @@ def artist(artist_id):
             join accounts oa on oa.id = case when e.source_account_id = m.account_id
                                              then e.target_account_id else e.source_account_id end
             join platforms op on op.id = oa.platform_id
-            where e.claim = 'related' and e.status = 'present'
+            left join artist_accounts oaa on oaa.account_id = oa.id and oaa.removed_at is null
+            left join artists oar on oar.id = oaa.artist_id and oar.merged_into is null
+            -- `related` edges are ordinary connections; `same_person` edges to
+            -- a NON-member are unresolved claims (target sits in another
+            -- artist, or clustering hasn't attached it) — they must be visible
+            -- and attachable here, not silently absent.
+            where e.status = 'present'
               -- Skip edges whose other end is already an account of this artist:
               -- that link is internal to a merge, not an external connection.
               and oa.id not in (select account_id from artist_accounts
                                 where artist_id = %(id)s and removed_at is null)
-            order by oa.id, e.id""", {"id": artist_id})
+            order by oa.id, e.claim desc, e.id""", {"id": artist_id})
         signals = q(conn, """
             select 'attestation' as kind, att.signal, att.matched_text, a.handle::text,
                    att.first_seen, att.last_seen
@@ -751,6 +1054,14 @@ def confirm_connection(artist_id, account_id):
         if other_artist and other_artist != artist_id:
             from .cluster import merge_artists
             merge_artists(conn, artist_id, [other_artist], actor="admin:review-ui")
+            # A pending merge question for this pair is now answered.
+            cur.execute(
+                """update review_items
+                   set status = 'approved', resolved_at = now(),
+                       decided_by = 'admin:review-ui'
+                   where kind = 'cluster_merge' and status = 'pending'
+                     and payload ->> 'artist_ids' = %s""",
+                (json.dumps(sorted([artist_id, other_artist])),))
         elif other_artist is None:
             cur.execute("""insert into artist_accounts (artist_id, account_id, confidence, added_by)
                            values (%s, %s, 'strong', 'human')""", (artist_id, account_id))
