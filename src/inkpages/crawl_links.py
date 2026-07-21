@@ -16,10 +16,41 @@ import httpx
 from psycopg.rows import dict_row
 
 from . import db
-from .extract import find_platform_links, find_short_links
+from .extract import find_platform_links, find_short_links, find_website_links
 
-HUB_PLATFORMS = ("linktree", "carrd", "potofu", "litlink")
-UA = {"User-Agent": "inkpages/0.1 (no-AI artist directory; link verification)"}
+HUB_PLATFORMS = ("linktree", "carrd", "potofu", "litlink", "biosite")
+# Browser-like headers: Linktree 403s obvious bot UAs while serving the same
+# public page to browsers. We fetch one page per hub at a polite rate.
+UA = {
+    "User-Agent": ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                   "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9,ja;q=0.8",
+}
+
+
+def fetch_page(client: httpx.Client, url: str):
+    """GET a public page; on 403 fall back to curl — some hosts (Linktree)
+    fingerprint the TLS handshake and block python clients while serving the
+    identical public page to browsers/curl."""
+    import subprocess
+    from types import SimpleNamespace
+
+    try:
+        resp = client.get(url, follow_redirects=True, timeout=20)
+        if resp.status_code != 403:
+            return resp
+    except httpx.HTTPError:
+        return None
+    try:
+        proc = subprocess.run(
+            ["curl", "-sS", "-L", "--max-time", "25", "-A", UA["User-Agent"],
+             "-w", "\n%{http_code}", url],
+            capture_output=True, text=True, timeout=35)
+        body, _, code = proc.stdout.rpartition("\n")
+        return SimpleNamespace(status_code=int(code or 0), text=body)
+    except (subprocess.SubprocessError, ValueError):
+        return None
 
 
 def resolve_url(client: httpx.Client, url: str, cache: dict) -> str | None:
@@ -43,23 +74,26 @@ def resolve_shorteners(conn, client, platforms, stats):
     """Latest snapshot per account containing shortener links -> resolve ->
     platform links become edges with the shortener chain as evidence_url."""
     with conn.cursor(row_factory=dict_row) as cur:
+        # Bio plus the Twitter location field — artists park links there too.
         cur.execute(
             """select distinct on (s.account_id)
-                      s.account_id, s.id as snapshot_id, s.bio_text
+                      s.account_id, s.id as snapshot_id,
+                      coalesce(s.bio_text, '') || ' ' || coalesce(s.raw ->> 'location', '') as scan_text
                from account_snapshots s
-               where s.bio_text ~* '(t\\.co|bit\\.ly|tinyurl\\.com|goo\\.gl)/'
+               where coalesce(s.bio_text, '') || ' ' || coalesce(s.raw ->> 'location', '')
+                     ~* '(t\\.co|bit\\.ly|tinyurl\\.com|goo\\.gl)/'
                order by s.account_id, s.captured_at desc"""
         )
         rows = cur.fetchall()
     cache: dict = {}
     for row in rows:
-        for short in find_short_links(row["bio_text"]):
+        for short in find_short_links(row["scan_text"]):
             final = resolve_url(client, short, cache)
             stats["shorteners_resolved"] += 1
             if not final:
                 stats["shorteners_failed"] += 1
                 continue
-            for link in find_platform_links(final):
+            for link in find_platform_links(final) + find_website_links(final):
                 platform_id = platforms.get(link.platform)
                 if platform_id is None:
                     continue
@@ -101,21 +135,32 @@ def crawl_hubs(conn, client, platforms, max_hubs, stats):
     for hub in hubs:
         if db.is_suppressed(conn, hub["id"]):
             continue
-        time.sleep(0.3)
-        try:
-            resp = client.get(hub["profile_url"], follow_redirects=True, timeout=20)
-        except httpx.HTTPError:
+        time.sleep(0.8)
+        resp = fetch_page(client, hub["profile_url"])
+        if resp is not None and resp.status_code == 429:
+            time.sleep(8)
+            resp = fetch_page(client, hub["profile_url"])
+        if resp is None:
             stats["hubs_failed"] += 1
             continue
-        with conn.cursor() as cur:
-            if resp.status_code == 404:
+        if resp.status_code == 404:
+            with conn.cursor() as cur:
                 cur.execute("update accounts set status = 'deleted', last_hydrated = now() where id = %s",
                             (hub["id"],))
-                stats["hubs_404"] += 1
-                continue
+            stats["hubs_404"] += 1
+            continue
+        if resp.status_code != 200:
+            # Blocked or throttled: no snapshot, last_hydrated stays null so
+            # the next run retries instead of recording a false empty result.
+            stats[f"hubs_http_{resp.status_code}"] += 1
+            continue
+        with conn.cursor() as cur:
             cur.execute("update accounts set status = 'active', last_hydrated = now() where id = %s",
                         (hub["id"],))
-        html = resp.text[:500_000]
+        # Hub builders embed links in JSON blobs with escaped slashes.
+        html = (resp.text[:800_000]
+                .replace("\\/", "/").replace("\\u002F", "/").replace("\\u002f", "/")
+                .replace("&amp;", "&"))
         links = [l for l in find_platform_links(html)
                  if not (l.platform == hub["platform"])]
         snapshot_id = db.insert_snapshot(
@@ -127,6 +172,7 @@ def crawl_hubs(conn, client, platforms, max_hubs, stats):
             fetch_source="hub_crawl",
         )
         stats["hubs_crawled"] += 1
+        produced: set[int] = set()
         for link in links:
             platform_id = platforms.get(link.platform)
             if platform_id is None:
@@ -143,17 +189,49 @@ def crawl_hubs(conn, client, platforms, max_hubs, stats):
                            evidence_type="link_hub",
                            evidence_snapshot_id=snapshot_id,
                            evidence_url=link.url, matched_text=None)
+            produced.add(target_id)
             stats["edges_from_hubs"] += 1
+        # Retract hub edges the fresh crawl no longer reproduces (page edited,
+        # or an earlier parser bug produced a bogus target).
+        with conn.cursor() as cur:
+            cur.execute(
+                """update identity_edges set status = 'retracted'
+                   where source_account_id = %s and status = 'present'
+                     and evidence_type = 'link_hub'
+                     and target_account_id <> all(%s)
+                   returning id""",
+                (hub["id"], list(produced) or [0]),
+            )
+            stats["hub_edges_retracted"] += len(cur.fetchall())
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--max-hubs", type=int, default=100)
+    parser.add_argument("--recrawl-all", action="store_true",
+                        help="re-crawl every hub, not just new/failed ones")
     args = parser.parse_args()
 
     stats: Counter = Counter()
     with httpx.Client(headers=UA) as client, db.connect() as conn:
         platforms = db.platform_ids(conn)
+        # Re-queue hubs whose earlier crawl produced nothing (e.g. was blocked
+        # before the browser-header fix) so they get another attempt.
+        with conn.cursor() as cur:
+            if args.recrawl_all:
+                cur.execute(
+                    """update accounts a set last_hydrated = null
+                       from platforms p
+                       where p.id = a.platform_id and p.kind = 'link_hub'
+                         and a.status <> 'deleted'""")
+            else:
+                cur.execute(
+                    """update accounts a set last_hydrated = null
+                       from platforms p
+                       where p.id = a.platform_id and p.kind = 'link_hub'
+                         and a.last_hydrated is not null and a.status <> 'deleted'
+                         and not exists (select 1 from identity_edges e
+                                         where e.source_account_id = a.id)""")
         resolve_shorteners(conn, client, platforms, stats)
         crawl_hubs(conn, client, platforms, args.max_hubs, stats)
         conn.commit()

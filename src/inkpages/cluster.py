@@ -207,9 +207,45 @@ def main() -> None:
 
         # 4. One-directional strong edges: attach targets, or queue for review
         # when the target is prominent (impersonation risk).
+        #
+        # Shared-resource guard: a target linked one-directionally by two or
+        # more *different* artists (a discord server, an event site, a
+        # collective page) is nobody's alt — never attach it and don't spam
+        # review. Also close any earlier clustering attach of such a target.
+        indegree: dict[int, set[int]] = defaultdict(set)
+        for edge in edges:
+            src, tgt = edge["source_account_id"], edge["target_account_id"]
+            if frozenset((src, tgt)) in mutual:
+                continue
+            if (a := membership.get(src)) is not None:
+                indegree[tgt].add(a)
+        shared_targets = {t for t, artists in indegree.items() if len(artists) >= 2}
+
+        with conn.cursor() as cur:
+            for tgt in shared_targets:
+                cur.execute(
+                    """update artist_accounts set removed_at = now()
+                       where account_id = %s and removed_at is null
+                         and added_by = 'clustering' and confidence = 'strong'
+                       returning artist_id""",
+                    (tgt,),
+                )
+                for (artist_id,) in cur.fetchall():
+                    cur.execute(
+                        """insert into artist_events (artist_id, event, actor, details)
+                           values (%s, 'account_removed', 'pipeline', %s)""",
+                        (artist_id, json.dumps({"account_id": tgt,
+                                                "reason": "shared_target"})),
+                    )
+                    membership.pop(tgt, None)
+                    stats["shared_detached"] += 1
+
         for edge in edges:
             src, tgt = edge["source_account_id"], edge["target_account_id"]
             if frozenset((src, tgt)) in mutual or src not in membership:
+                continue
+            if tgt in shared_targets:
+                stats["skipped_shared_target"] += 1
                 continue
             src_artist = membership[src]
             tgt_artist = membership.get(tgt)

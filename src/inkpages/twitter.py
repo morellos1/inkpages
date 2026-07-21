@@ -12,15 +12,15 @@ import httpx
 
 from . import db
 from .extract import (find_attestations, find_mentions, find_nsfw_flags,
-                      find_platform_links)
+                      find_platform_links, find_website_links)
 
 BASE = "https://api.x.com/2"
 POST_READ_CENTS = 0.5
 USER_READ_CENTS = 1.0
 DEFAULT_CAP_CENTS = 10_000  # $100 — override with X_SPEND_CAP_CENTS
 
-USER_FIELDS = ("created_at,description,entities,public_metrics,protected,"
-               "url,most_recent_tweet_id")
+USER_FIELDS = ("created_at,description,entities,location,public_metrics,"
+               "protected,url,most_recent_tweet_id")
 
 TWEPOCH_MS = 1288834974657
 
@@ -166,9 +166,9 @@ def process_user(conn, platforms: dict, user: dict, via: str, details: dict,
         stats["nsfw_flags"] += 1
 
     # Links: t.co expansion is free in entities — parse expanded URLs plus the
-    # raw bio text.
-    link_text = bio + "\n" + "\n".join(expanded_urls(user))
-    for link in find_platform_links(link_text):
+    # raw bio text and the location field (artists park links there too).
+    link_text = "\n".join([bio, user.get("location") or ""] + expanded_urls(user))
+    for link in find_platform_links(link_text) + find_website_links(link_text):
         platform_id = platforms.get(link.platform)
         if platform_id is None:
             continue

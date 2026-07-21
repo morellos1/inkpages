@@ -15,8 +15,8 @@ from collections import Counter
 
 from . import db
 from .bluesky import Bluesky
-from .extract import (BSKY_NSFW_SELF_LABELS, find_attestations,
-                      find_mentions, find_nsfw_flags, find_platform_links)
+from .extract import (BSKY_NSFW_SELF_LABELS, find_attestations, find_mentions,
+                      find_nsfw_flags, find_platform_links, find_website_links)
 
 
 def collect_actors(bsky: Bluesky, args) -> dict[str, dict]:
@@ -104,7 +104,7 @@ def process_profile(conn, platforms: dict[str, int], profile: dict,
                                    label["val"], snapshot_id)
             stats["nsfw_flags"] += 1
 
-    for link in find_platform_links(bio):
+    for link in find_platform_links(bio) + find_website_links(bio):
         platform_id = platforms.get(link.platform)
         if platform_id is None:
             continue

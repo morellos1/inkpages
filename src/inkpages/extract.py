@@ -163,8 +163,10 @@ _LINK_PATTERNS: list[tuple[str, re.Pattern]] = [
     ("bluesky", re.compile(r"bsky\.app/profile/(?!did:)(?P<handle>[A-Za-z0-9.-]+)", re.I)),
     ("pixiv", re.compile(r"pixiv\.net/(?:en/)?(?:users/|member\.php\?id=)(?P<native_id>\d+)", re.I)),
     ("skeb", re.compile(r"skeb\.jp/@(?P<handle>[\w.-]+)", re.I)),
-    ("artstation", re.compile(r"artstation\.com/(?!marketplace\b|learning\b)(?P<handle>[A-Za-z0-9_-]+)", re.I)),
-    ("patreon", re.compile(r"patreon\.com/(?:c/)?(?!posts\b|join\b|checkout\b)(?P<handle>[A-Za-z0-9_-]+)", re.I)),
+    ("artstation", re.compile(r"artstation\.com/(?!marketplace\b|learning\b|artwork\b|blogs\b|prints\b|challenges\b|jobs\b)(?P<handle>[A-Za-z0-9_-]+)", re.I)),
+    # Patreon uses both /c/ and the newer /cw/ as path prefixes before the
+    # creator name — neither is ever the handle itself.
+    ("patreon", re.compile(r"patreon\.com/(?:c/|cw/)?(?!posts\b|join\b|checkout\b|user\b|c\b|cw\b)(?P<handle>[A-Za-z0-9_-]+)", re.I)),
     ("kofi", re.compile(r"ko-fi\.com/(?P<handle>[A-Za-z0-9_]+)", re.I)),
     ("vgen", re.compile(r"vgen\.co/(?P<handle>[A-Za-z0-9_-]+)", re.I)),
     ("cara", re.compile(r"cara\.app/(?P<handle>[A-Za-z0-9._-]+)", re.I)),
@@ -176,6 +178,18 @@ _LINK_PATTERNS: list[tuple[str, re.Pattern]] = [
     ("gumroad", re.compile(r"\b(?P<handle>[A-Za-z0-9]+)\.gumroad\.com", re.I)),
     ("inprnt", re.compile(r"inprnt\.com/gallery/(?P<handle>\w+)", re.I)),
     ("instagram", re.compile(r"instagram\.com/(?!p/|reel/|explore\b)(?P<handle>[A-Za-z0-9._]{1,30})", re.I)),
+    ("mihuashi", re.compile(r"mihuashi\.com/(?:users|painters)/(?P<handle>[^/\s?#\"']+)", re.I)),
+    ("youtube", re.compile(r"youtube\.com/@(?P<handle>[\w.-]+)", re.I)),
+    ("youtube", re.compile(r"youtube\.com/(?:c/|user/)(?P<handle>[\w.-]+)", re.I)),
+    ("youtube", re.compile(r"youtube\.com/channel/(?P<native_id>UC[\w-]{10,})", re.I)),
+    ("discord", re.compile(r"(?:discord\.gg|discord(?:app)?\.com/invite)/(?P<handle>[A-Za-z0-9-]+)", re.I)),
+    ("telegram", re.compile(r"\bt\.me/(?P<handle>[A-Za-z0-9_]{4,32})", re.I)),
+    ("twitch", re.compile(r"twitch\.tv/(?!videos\b|directory\b|collections\b)(?P<handle>[A-Za-z0-9_]{3,25})", re.I)),
+    ("furaffinity", re.compile(r"furaffinity\.net/user/(?P<handle>[\w.~-]+)", re.I)),
+    ("behance", re.compile(r"(?:behance\.net|be\.net)/(?!gallery\b)(?P<handle>[A-Za-z0-9_-]+)", re.I)),
+    ("boosty", re.compile(r"boosty\.to/(?P<handle>[A-Za-z0-9_.-]+)", re.I)),
+    ("artfight", re.compile(r"artfight\.net/~(?P<handle>[\w.-]+)", re.I)),
+    ("biosite", re.compile(r"bio\.site/(?P<handle>[\w.-]+)", re.I)),
     ("linktree", re.compile(r"linktr\.ee/(?P<handle>[\w.]+)", re.I)),
     ("carrd", re.compile(r"\b(?P<handle>[A-Za-z0-9-]+)\.carrd\.co", re.I)),
     ("potofu", re.compile(r"potofu\.me/(?P<handle>[\w.-]+)", re.I)),
@@ -184,6 +198,60 @@ _LINK_PATTERNS: list[tuple[str, re.Pattern]] = [
 
 _SUBDOMAIN_JUNK = {"www", "blog", "shop", "app", "help", "about", "support"}
 
+# --- personal websites (generic fallback) ---------------------------------
+
+_GENERIC_URL = re.compile(r"(?:https?://|www\.)[^\s<>\"'()\[\]{}]+", re.I)
+_DOMAIN_OF = re.compile(r"^(?:https?://)?(?:www\.)?([^/\s:?#]+)", re.I)
+
+_PLATFORM_DOMAINS = {
+    "x.com", "twitter.com", "bsky.app", "pixiv.net", "skeb.jp",
+    "artstation.com", "patreon.com", "ko-fi.com", "vgen.co", "cara.app",
+    "xfolio.jp", "deviantart.com", "tumblr.com", "gumroad.com", "inprnt.com",
+    "instagram.com", "linktr.ee", "carrd.co", "potofu.me", "lit.link",
+    "mihuashi.com", "youtube.com", "youtu.be", "discord.gg", "discord.com",
+    "discordapp.com", "t.me", "telegram.me", "twitch.tv",
+    "furaffinity.net", "behance.net", "be.net", "boosty.to", "artfight.net",
+    "bio.site",
+}
+# Shorteners (opaque), commerce/utility noise, and booru domains — boorus are
+# hint-only by hard rule and must never enter the graph as artist links.
+_NON_WEBSITE_DOMAINS = _PLATFORM_DOMAINS | {
+    "t.co", "bit.ly", "tinyurl.com", "goo.gl",
+    "google.com", "forms.gle", "docs.google.com", "drive.google.com",
+    "open.spotify.com", "spotify.com", "amazon.com", "amazon.co.jp",
+    "amzn.to", "amzn.asia", "apple.com", "paypal.me", "paypal.com",
+    "cash.app", "streamlabs.com", "throne.com", "thron.ee",
+    "donmai.us", "gelbooru.com", "e621.net", "rule34.xxx",
+    "safebooru.org", "yande.re", "konachan.com", "sankakucomplex.com",
+}
+
+
+def find_website_links(text: str | None) -> list[PlatformLink]:
+    """URLs that belong to no known platform => the artist's personal site.
+    The handle keeps the path (trimmed) so different artists' pages on a
+    shared host never collapse into one account."""
+    if not text:
+        return []
+    seen: dict[str, PlatformLink] = {}
+    for m in _GENERIC_URL.finditer(text):
+        if text[m.end():m.end() + 3].startswith(("…", "...", "‥")):
+            continue
+        url = m.group(0).rstrip(".,;:!?)»」】")
+        domain_match = _DOMAIN_OF.match(url)
+        if not domain_match:
+            continue
+        domain = domain_match.group(1).lower()
+        if "." not in domain or any(
+            domain == d or domain.endswith("." + d) for d in _NON_WEBSITE_DOMAINS
+        ):
+            continue
+        path = re.sub(r"^(?:https?://)?(?:www\.)?", "", url).split("?")[0].split("#")[0]
+        handle = path.rstrip("/").lower()[:80]
+        if not url.startswith("http"):
+            url = "https://" + url
+        seen.setdefault(handle, PlatformLink("website", handle, None, url))
+    return list(seen.values())
+
 
 def find_platform_links(text: str | None) -> list[PlatformLink]:
     if not text:
@@ -191,10 +259,14 @@ def find_platform_links(text: str | None) -> list[PlatformLink]:
     seen: dict[tuple, PlatformLink] = {}
     for platform, pattern in _LINK_PATTERNS:
         for m in pattern.finditer(text):
+            # Platform bio limits truncate long URLs with an ellipsis; half a
+            # handle silently matches the wrong account, so drop the link.
+            if text[m.end():m.end() + 3].startswith(("…", "...", "‥")):
+                continue
             groups = m.groupdict()
             handle = groups.get("handle")
             native_id = groups.get("native_id")
-            if handle and handle.lower() in _SUBDOMAIN_JUNK:
+            if handle and (len(handle) < 2 or handle.lower() in _SUBDOMAIN_JUNK):
                 continue
             url = m.group(0)
             if not url.startswith("http"):
