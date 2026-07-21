@@ -12,30 +12,33 @@ rationale: `docs/schema.md` and `docs/pipeline.md`.
 
 ## Current state (2026-07-21)
 
-- **2,142 listed artists** (+44 hidden by the sub-50-follower cull), ~11.4k
-  accounts, 828 flagged 18+. Languages: ~1,319 ja / ~648 en / ~80 zh / ~20 ko.
+- **2,607 listed artists** (+89 hidden by the sub-50-follower cull), ~13.7k
+  accounts, 1,049 flagged 18+, 120 no-AI badged. Languages: ~1,847 ja /
+  ~637 en / ~101 zh / ~22 ko.
 - **Discovery live**: Bluesky (free), Skeb (free — Algolia ranking +
-  `--hydrate-known` for referenced-but-unfetched accounts), Pixiv (free — SFW
-  weekly/monthly rankings + `--r18-pages` R18 rankings via `PIXIV_SESSION`
-  cookie), Twitter (paid — ~$24.59 of a $100 budget spent).
-- **pixiv R18 caveat**: the R18 ranking API is throttled/capped to ~1-2 pages
-  (~99 unique artists total), not the deep top-500 the SFW ranking allows. For
-  scale, an authed tag-search harvest (`/ajax/search/artworks/{tag}?mode=r18`)
-  is the better path — not built yet.
+  `--hydrate-known`), Pixiv (free — SFW rankings + **tag-search harvest**:
+  `--tag オリジナル --tag-mode r18 --tag-order popular_d --new-only --max-new N`;
+  the `PIXIV_SESSION` is **premium** so popularity sort works; `ai_type=1`
+  excludes author-flagged AI works — discovery filter only, never an
+  attestation), Twitter (paid — ~$31.17 of a $100 budget spent).
+- The old pixiv R18-ranking throttle (~99 artists) is moot: R18 tag search
+  reaches millions of works. 2026-07-21 harvest: +250 SFW / +200 R18 artists
+  via オリジナル + 原創.
+- **Auto-hydration**: `pipeline.py` now runs skeb+pixiv hydrate-known before
+  crawl/check/cluster and classify_region after, then prints the paid twitter
+  backlog + est. cost (never spends by itself). Repeat pipeline → hydrate_twitter
+  rounds converge in ~2 iterations after a big discovery run.
 - **Not built yet**: stratified ranking runs, Bluesky list/starter-pack
   expansion, Graphtreon/Patreon, ArtStation/Cara/DeviantArt/Tumblr, the public
   site.
-- Review queue: **41 pending** — 21 `cluster_merge` conflicts (mostly from the
-  skeb `--hydrate-known` OAuth links joining two existing artists) + anomalies.
+- Review queue: **34 pending** — 12 `cluster_merge` + 22 anomalies/other.
+  Artist-level cyclical references now auto-merge (see clustering model), which
+  drained 10 of the old 21 merge conflicts.
 - **Next up (in priority order):**
-  1. **Hydrate the 153 OAuth-surfaced member Twitters** — skeb hydration +
-     reciprocity attached them but `last_hydrated is null`, so they show no
-     followers/bio. `hydrate_twitter.py` (users_by_ids) fixes it. **Paid — needs
-     explicit spend approval** (~$X against the $100 cap; check `api_usage`).
-  2. **R18 tag-search harvest** — the ranking API caps at ~99 (see caveat
-     above). Build an authed `/ajax/search/artworks/{tag}?mode=r18` harvester
-     (reuse the `PIXIV_SESSION` cookie + `Pixiv` client) to scale NSFW coverage.
-  3. **Work the 21 `cluster_merge` reviews** in the review UI.
+  1. **Work the 12 `cluster_merge` + 22 anomaly reviews** in the review UI.
+  2. **Bluesky list/starter-pack expansion** (free discovery breadth).
+  3. Consider deeper tag-search harvests (more pages, more tags, e.g.
+     `オリジナル10000users入り` as a curated tier) — each round is ~free.
 - **Verification cull**: Twitter/Bluesky accounts under 50 followers set to
   account status `hidden` (migration 0016); reversible with
   `update accounts set status='active' where status='hidden'`.
@@ -82,9 +85,10 @@ Everything runs under `uv`.
    fingerprint → `artists.language` (ja/en/ko/zh/unknown) + `region`.
 8. **Publish** — `directory_entries` view is the only publish surface.
 
-**`pipeline.py`** chains crawl_links → check_links → cluster. **Run it after
-every discovery/hydration run** (new bios mint new hubs whose contents only
-exist after a crawl).
+**`pipeline.py`** chains hydrate-known (skeb, pixiv) → crawl_links →
+check_links → cluster → classify_region, then prints the paid twitter backlog.
+**Run it after every discovery/hydration run** (new bios mint new hubs whose
+contents only exist after a crawl).
 
 ### Review UI
 
@@ -115,6 +119,18 @@ websites, secondary same-platform links).
 - **Reciprocal same-person edges** (incl. hub-mediated) → union-find components →
   near-proof merge. **Two existing artists in one reciprocal component
   auto-merge** (cap-guarded); 3+ artists or cap breach → `cluster_merge` review.
+- **Artist-level reciprocity** (`try_reciprocal_artist_merge`): two existing
+  artists whose clusters reference each other through ANY member accounts —
+  cyclically, e.g. skeb→pixiv + pixiv→twitter where twitter+skeb are already one
+  artist — auto-merge instead of queueing review. Prominence-flipped
+  (`unreciprocated_prominent`) edges count as back-links and get restored to
+  `same_person` (`artist_reciprocity` hint) on merge; pending `cluster_merge`
+  items for the pair auto-resolve (`decided_by='pipeline:artist_reciprocity'`).
+  Guards: same-platform cap, suppression check.
+- **Heal is latest-event-only**: the start-of-run self-heal only honors the
+  most recent `account_added` event per membership; older retracted-edge events
+  don't re-heal a membership that was re-added on fresh evidence (fixed a
+  63-membership remove/re-add oscillation on every run).
 - **One-directional edges never queue for review** (best-effort policy, user
   directive): OAuth-verified links (Skeb `twitter_uid`, `relation_hint='oauth'`)
   and regexed alt mentions auto-attach; doubtful cases (prominent unreciprocated
@@ -189,6 +205,8 @@ normal guards. See `discover_skeb.py` `FIELD_VALUE_BLOCKLIST`.
   (migration 0018 also reclassifies old `website` rows that were misskey links).
   **After adding a pattern, run `reextract.py` to backfill stored snapshots**
   (e.g. ~87 `tr.ee` links still parsed as `website` until a reextract pass).
+  `weibo` + `facebook` are first-class display-only platforms (migration 0020
+  reclassified old `website` rows; never fetched, like Instagram).
 - URL matching is ASCII-only (bios decorate links with emoji). Handles are
   truncation-guarded (ellipsis) and hex-junk-guarded (CDN hashes).
 - Verify against live data before declaring done: run the worker, check the DB,

@@ -212,18 +212,26 @@ def main() -> None:
     stats: Counter = Counter()
     with db.connect() as conn:
         # Self-heal: close clustering-added memberships whose justifying edge
-        # has since been retracted (parser fixes, hub re-crawls).
+        # has since been retracted (parser fixes, hub re-crawls). Only the
+        # LATEST add event per membership counts — a membership re-added later
+        # on fresh evidence must not be re-healed forever because of an old
+        # event whose edge died (that oscillated remove/re-add every run).
         with conn.cursor() as cur:
             cur.execute(
-                """select ev.artist_id, (ev.details ->> 'account_id')::bigint as account_id,
-                          (ev.details ->> 'edge_id')::bigint as edge_id
-                   from artist_events ev
-                   join identity_edges e on e.id = (ev.details ->> 'edge_id')::bigint
-                   join artist_accounts aa on aa.artist_id = ev.artist_id
-                        and aa.account_id = (ev.details ->> 'account_id')::bigint
+                """select latest.artist_id, latest.account_id, latest.edge_id
+                   from (select distinct on (ev.artist_id, (ev.details ->> 'account_id')::bigint)
+                                ev.artist_id,
+                                (ev.details ->> 'account_id')::bigint as account_id,
+                                (ev.details ->> 'edge_id')::bigint as edge_id
+                         from artist_events ev
+                         where ev.event = 'account_added'
+                         order by ev.artist_id, (ev.details ->> 'account_id')::bigint,
+                                  ev.created_at desc) latest
+                   join identity_edges e on e.id = latest.edge_id
+                   join artist_accounts aa on aa.artist_id = latest.artist_id
+                        and aa.account_id = latest.account_id
                         and aa.removed_at is null and aa.added_by = 'clustering'
-                   where ev.event = 'account_added'
-                     and (e.status = 'retracted' or e.claim = 'related')"""
+                   where e.status = 'retracted' or e.claim = 'related'"""
             )
             for artist_id, account_id, edge_id in cur.fetchall():
                 cur.execute(

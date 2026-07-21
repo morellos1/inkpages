@@ -1,5 +1,6 @@
 """Run the free post-discovery stages in order:
-hydrate-known (skeb, pixiv) -> crawl_links -> check_links -> cluster.
+hydrate-known (skeb, pixiv) -> crawl_links -> check_links -> cluster
+-> classify_region.
 
 Every discovery or hydration run must be followed by these — newly referenced
 accounts on free platforms get hydrated (their bios mint edges and hub
@@ -15,7 +16,7 @@ Usage: uv run python -m inkpages.pipeline [--skip-hydrate]
 import argparse
 import sys
 
-from . import check_links, cluster, crawl_links, db
+from . import check_links, classify_region, cluster, crawl_links, db
 from .twitter import USER_READ_CENTS
 
 
@@ -60,6 +61,8 @@ def main() -> None:
     check_links.main()
     sys.argv = ["cluster"]
     cluster.main()
+    sys.argv = ["classify_region"]
+    classify_region.main()
     report_twitter_backlog()
 
 
