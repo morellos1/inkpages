@@ -20,8 +20,8 @@ POST_READ_CENTS = 0.5
 USER_READ_CENTS = 1.0
 DEFAULT_CAP_CENTS = 10_000  # $100 — override with X_SPEND_CAP_CENTS
 
-USER_FIELDS = ("created_at,description,entities,location,public_metrics,"
-               "protected,url,most_recent_tweet_id")
+USER_FIELDS = ("created_at,description,entities,location,profile_image_url,"
+               "public_metrics,protected,url,most_recent_tweet_id")
 
 TWEPOCH_MS = 1288834974657
 
@@ -172,6 +172,7 @@ def process_user(conn, platforms: dict, user: dict, via: str, details: dict,
     )
     stats["snapshots"] += 1
 
+    db.set_avatar(conn, account_id, user.get("profile_image_url"))
     db.set_contact_email(conn, account_id, find_email(
         "\n".join(filter(None, [bio, user.get("location")]))))
     comm = find_commission_status(
@@ -204,7 +205,9 @@ def process_user(conn, platforms: dict, user: dict, via: str, details: dict,
         )
         db.upsert_edge(conn, account_id, target_id, evidence_type="bio_link",
                        evidence_snapshot_id=snapshot_id, evidence_url=link.url,
-                       matched_text=None)
+                       matched_text=None,
+                       claim="related" if link.platform == "website" else "same_person",
+                       relation_hint="website" if link.platform == "website" else None)
         stats["edges"] += 1
 
     for mention in find_mentions(bio, "twitter"):

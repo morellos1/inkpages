@@ -68,11 +68,12 @@ TEMPLATES = {
 <form method="get"><input type="text" name="q" value="{{ q }}" placeholder="search slug / name / handle" autofocus>
 <button class="warn">Search</button></form>
 <p class="muted">{{ artists|length }} shown, ordered by top follower count.</p>
-<table><tr><th>artist</th><th>region</th><th>followers</th><th>last active</th><th>accounts</th><th>flags</th></tr>
+<table><tr><th></th><th>artist</th><th>lang</th><th>followers</th><th>last active</th><th>accounts</th><th>flags</th></tr>
 {% for a in artists %}<tr>
+  <td>{% if a.avatar_url %}<img src="{{ a.avatar_url }}" width="36" height="36" style="border-radius:50%;object-fit:cover" loading="lazy">{% endif %}</td>
   <td><a href="{{ url_for('artist', artist_id=a.artist_id) }}"><b>{{ a.public_slug }}</b></a><br>
       <span class="muted">{{ a.display_name }}</span></td>
-  <td>{{ a.region }}</td>
+  <td>{{ a.language }}</td>
   <td>{{ "{:,}".format(a.followers) if a.followers else "—" }}</td>
   <td>{{ a.last_active_at.date() if a.last_active_at else "—" }}</td>
   <td>{% for acc in a.accounts or [] %}<span class="chip">{{ acc.platform }}: {{ acc.handle }}</span>{% endfor %}</td>
@@ -86,12 +87,12 @@ TEMPLATES = {
 {% endblock %}""",
 
 "artist.html": """{% extends "base.html" %}{% block content %}
-<h1>{{ artist.display_name }} <span class="muted">/{{ artist.public_slug }}</span>
+<h1>{% if avatar %}<img src="{{ avatar }}" width="44" height="44" style="border-radius:50%;object-fit:cover;vertical-align:middle"> {% endif %}{{ artist.display_name }} <span class="muted">/{{ artist.public_slug }}</span>
   {% if badge %}<span class="chip badge-noai">no-AI</span>{% endif %}
   {% if nsfw %}<span class="chip badge-nsfw">18+</span>{% endif %}
   {% if suppressed %}<span class="chip badge-suppressed">SUPPRESSED</span>{% endif %}
 </h1>
-<p class="muted">region: {{ artist.region }} ({{ artist.region_source }}) · status: {{ artist.status }} · created {{ artist.created_at.date() }}</p>
+<p class="muted">language: {{ artist.language }} · region: {{ artist.region }} ({{ artist.region_source }}) · status: {{ artist.status }} · created {{ artist.created_at.date() }}</p>
 
 <div class="card">
 {% if suppressed %}
@@ -268,7 +269,7 @@ def artist(artist_id):
     with db.connect() as conn:
         artist = q(conn, "select * from artists where id = %s", (artist_id,))[0]
         accounts = q(conn, """
-            select a.id, a.handle::text, a.profile_url, a.followers_count, a.status,
+            select a.id, a.handle::text, a.profile_url, a.avatar_url, a.followers_count, a.status,
                    a.platform_stats, a.last_post_at, a.contact_email, a.commission_status,
                    a.commission_confidence, a.commission_detail, a.commission_checked_at,
                    aa.confidence, p.slug as platform, p.display_only,
@@ -278,7 +279,7 @@ def artist(artist_id):
             join accounts a on a.id = aa.account_id
             join platforms p on p.id = a.platform_id
             where aa.artist_id = %s and aa.removed_at is null
-            order by a.followers_count desc nulls last""", (artist_id,))
+            order by p.display_rank, a.followers_count desc nulls last""", (artist_id,))
         connections = q(conn, """
             select case when e.source_account_id = m.account_id then 'outgoing' else 'incoming' end as direction,
                    e.relation_hint, e.matched_text, e.evidence_url,
@@ -311,6 +312,8 @@ def artist(artist_id):
         return render_template(
             "artist.html", artist=artist, accounts=accounts, signals=signals,
             connections=connections, events=events,
+            avatar=next((a["avatar_url"] for a in accounts
+                         if a.get("avatar_url")), None),
             suppressed=suppressed_rows[0] if suppressed_rows else None,
             badge=any(s["kind"] == "attestation" for s in signals),
             nsfw=any(s["kind"] == "content_flag" for s in signals),

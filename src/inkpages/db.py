@@ -208,6 +208,13 @@ def set_platform_stats(conn, account_id: int, stats: dict) -> None:
                     (json.dumps(stats), account_id))
 
 
+def set_avatar(conn, account_id: int, url: str | None) -> None:
+    if not url:
+        return
+    with conn.cursor() as cur:
+        cur.execute("update accounts set avatar_url = %s where id = %s", (url, account_id))
+
+
 def set_contact_email(conn, account_id: int, email: str | None) -> None:
     with conn.cursor() as cur:
         cur.execute("update accounts set contact_email = %s where id = %s",

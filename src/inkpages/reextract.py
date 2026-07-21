@@ -83,7 +83,9 @@ def process(conn, platforms, row, stats) -> list[int]:
         if target_id != account_id:
             db.upsert_edge(conn, account_id, target_id, evidence_type="bio_link",
                            evidence_snapshot_id=snapshot_id,
-                           evidence_url=link.url, matched_text=None)
+                           evidence_url=link.url, matched_text=None,
+                           claim="related" if link.platform == "website" else "same_person",
+                           relation_hint="website" if link.platform == "website" else None)
             link_targets.add(target_id)
 
     mention_targets: set[int] = set()

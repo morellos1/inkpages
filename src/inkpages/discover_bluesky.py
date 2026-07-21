@@ -91,6 +91,7 @@ def process_profile(conn, platforms: dict[str, int], profile: dict,
     )
     stats["snapshots"] += 1
 
+    db.set_avatar(conn, account_id, profile.get("avatar"))
     db.set_contact_email(conn, account_id, find_email(bio))
     comm = find_commission_status(
         "\n".join(filter(None, [bio, profile.get("displayName")])))
@@ -130,6 +131,8 @@ def process_profile(conn, platforms: dict[str, int], profile: dict,
             evidence_snapshot_id=snapshot_id,
             evidence_url=link.url,
             matched_text=None,
+            claim="related" if link.platform == "website" else "same_person",
+            relation_hint="website" if link.platform == "website" else None,
         )
         stats["edges"] += 1
 

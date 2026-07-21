@@ -166,6 +166,7 @@ def process_creator(conn, platforms: dict, detail: dict, rank: int, stats: Count
 
     db.set_platform_stats(conn, account_id,
                           {k: detail.get(k) for k in STAT_KEYS})
+    db.set_avatar(conn, account_id, detail.get("avatar_url"))
     # Skeb's acceptance flag is the platform's own state — authoritative.
     accepting = detail.get("acceptable")
     db.set_commission(conn, account_id,
@@ -184,37 +185,53 @@ def process_creator(conn, platforms: dict, detail: dict, rank: int, stats: Count
         db.upsert_content_flag(conn, account_id, "nsfw", signal, matched, snapshot_id)
         stats["nsfw_flags"] += 1
 
-    # Platform-declared linked services => profile_field edges (near-proof for
-    # the OAuth-verified twitter link at clustering time).
-    claims = linked_accounts(detail)
-    for link in (detail.get("user_service_links") or []):
-        if link.get("provider") == "twitter":
-            continue  # handled via twitter_uid
-        for found in find_platform_links(link.get("url") or "") + find_website_links(link.get("url") or ""):
-            claims.append((found.platform, found.native_id, found.handle, found.url))
-    for text in filter(None, [detail.get("url"), bio]):
-        for found in find_platform_links(text) + find_website_links(text):
-            claims.append((found.platform, found.native_id, found.handle, found.url))
+    # Platform-registered ids (OAuth twitter_uid, pixiv_id, fanbox_id, …) are
+    # the artist's own accounts => profile_field, same_person. Everything else
+    # on the profile — bio links, the url field, service-link extras — is
+    # weaker: the OAuth link IS their twitter, so any OTHER twitter found here
+    # is a project/collab and becomes a related connection; generic websites
+    # likewise.
+    emitted: set[int] = set()
 
-    seen: set[tuple] = set()
-    for platform, native_id, handle, url in claims:
+    def emit(platform, native_id, handle, url, evidence_type, claim, hint):
         platform_id = platforms.get(platform)
-        key = (platform, native_id or (handle or "").lower())
-        if platform_id is None or key in seen or not (handle or native_id):
-            continue
-        seen.add(key)
+        if platform_id is None or not (handle or native_id):
+            return
         target_id = db.get_or_create_account(
             conn, platform_id, native_id=native_id,
             handle=handle or native_id, profile_url=url,
             discovered_via="bio_link",
             discovery_details={"source_account_id": account_id, "via": "skeb_profile"},
         )
+        if target_id in emitted or target_id == account_id:
+            return
+        emitted.add(target_id)
         db.upsert_edge(conn, account_id, target_id,
-                       evidence_type="profile_field",
+                       evidence_type=evidence_type,
                        evidence_snapshot_id=snapshot_id,
                        evidence_url=url or f"https://skeb.jp/@{screen_name}",
-                       matched_text=None)
-        stats["edges"] += 1
+                       matched_text=None, claim=claim, relation_hint=hint)
+        stats[f"edges_{claim}"] += 1
+
+    for platform, native_id, handle, url in linked_accounts(detail):
+        emit(platform, native_id, handle, url, "profile_field", "same_person", None)
+
+    weak: list = []
+    for link in (detail.get("user_service_links") or []):
+        if link.get("provider") == "twitter":
+            continue  # handled via twitter_uid
+        weak += find_platform_links(link.get("url") or "") + find_website_links(link.get("url") or "")
+    for text in filter(None, [detail.get("url"), bio]):
+        weak += find_platform_links(text) + find_website_links(text)
+    for found in weak:
+        if found.platform == "twitter":
+            claim, hint = "related", "skeb_secondary"
+        elif found.platform == "website":
+            claim, hint = "related", "website"
+        else:
+            claim, hint = "same_person", None
+        emit(found.platform, found.native_id, found.handle, found.url,
+             "bio_link", claim, hint)
 
 
 def main() -> None:

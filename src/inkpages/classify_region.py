@@ -30,23 +30,34 @@ _HAN = re.compile(r"[一-鿿]")
 _LATIN = re.compile(r"[A-Za-z]")
 
 
-def score(text: str, platforms: set[str]) -> tuple[str, float]:
-    east = west = 0.0
+def detect_language(text: str) -> str:
     if _KANA.search(text):
-        east += 2.0
+        return "ja"
     if _HANGUL.search(text):
+        return "ko"
+    if _HAN.search(text):
+        return "zh"
+    if _LATIN.search(text):
+        return "en"
+    return "unknown"
+
+
+def score(text: str, platforms: set[str]) -> tuple[str, str, float]:
+    """(language, region, confidence)."""
+    language = detect_language(text)
+    east = west = 0.0
+    if language in ("ja", "ko"):
         east += 2.0
-    if _HAN.search(text) and not _KANA.search(text):
+    elif language == "zh":
         east += 1.5
-    if _LATIN.search(text) and not (_KANA.search(text) or _HANGUL.search(text)
-                                    or _HAN.search(text)):
+    elif language == "en":
         west += 1.0
     east += min(len(platforms & EAST_PLATFORMS), 3)
     west += min(len(platforms & WEST_PLATFORMS), 3)
     margin = abs(east - west)
     if margin < 0.75:
-        return "unknown", 0.0
-    return ("eastern" if east > west else "western"), round(min(margin / 4, 1.0), 2)
+        return language, "unknown", 0.0
+    return language, ("eastern" if east > west else "western"), round(min(margin / 4, 1.0), 2)
 
 
 def main() -> None:
@@ -71,15 +82,15 @@ def main() -> None:
             rows = cur.fetchall()
         with conn.cursor() as cur:
             for row in rows:
-                region, confidence = score(row["text"] or "", set(row["platforms"]))
+                language, region, confidence = score(row["text"] or "",
+                                                     set(row["platforms"]))
                 cur.execute(
                     """update artists set region = %s, region_confidence = %s,
-                                          updated_at = now()
-                       where id = %s and region_source = 'auto'
-                         and (region <> %s or region_confidence is distinct from %s)""",
-                    (region, confidence, row["id"], region, confidence),
+                                          language = %s, updated_at = now()
+                       where id = %s and region_source = 'auto'""",
+                    (region, confidence, language, row["id"]),
                 )
-                stats[region] += cur.rowcount
+                stats[f"lang_{language}"] += 1
         conn.commit()
     print("done:", dict(stats))
 

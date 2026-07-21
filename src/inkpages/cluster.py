@@ -87,10 +87,13 @@ def create_artist(conn, account: dict, actor: str = "pipeline") -> int:
 def add_member(conn, artist_id: int, account_id: int, confidence: str,
                details: dict, actor: str = "pipeline") -> None:
     with conn.cursor() as cur:
-        # Never reopen a membership a human closed.
+        # Never reopen a membership a HUMAN closed; pipeline-closed rows
+        # (repairs, retraction healing) may re-form when evidence supports it.
         cur.execute(
-            """select 1 from artist_accounts
-               where artist_id = %s and account_id = %s and removed_at is not null""",
+            """select 1 from artist_events
+               where artist_id = %s and event = 'account_removed'
+                 and (details ->> 'account_id')::bigint = %s
+                 and actor like 'admin%%'""",
             (artist_id, account_id),
         )
         if cur.fetchone():
@@ -178,7 +181,8 @@ def main() -> None:
                    join artist_accounts aa on aa.artist_id = ev.artist_id
                         and aa.account_id = (ev.details ->> 'account_id')::bigint
                         and aa.removed_at is null and aa.added_by = 'clustering'
-                   where ev.event = 'account_added' and e.status = 'retracted'"""
+                   where ev.event = 'account_added'
+                     and (e.status = 'retracted' or e.claim = 'related')"""
             )
             for artist_id, account_id, edge_id in cur.fetchall():
                 cur.execute(
@@ -200,6 +204,19 @@ def main() -> None:
         directed = {(e["source_account_id"], e["target_account_id"]) for e in edges}
         mutual = {frozenset(pair) for pair in directed if (pair[1], pair[0]) in directed}
 
+        # Per-artist platform tallies for the same-platform cap.
+        platform_counts: dict[int, Counter] = defaultdict(Counter)
+        for account_id, artist_id in membership.items():
+            if account_id in accounts:
+                platform_counts[artist_id][accounts[account_id]["platform_slug"]] += 1
+
+        def cap_ok(artist_id: int, account_id: int) -> bool:
+            slug = accounts[account_id]["platform_slug"]
+            return platform_counts[artist_id][slug] < policy.MAX_SAME_PLATFORM
+
+        def note_attach(artist_id: int, account_id: int) -> None:
+            platform_counts[artist_id][accounts[account_id]["platform_slug"]] += 1
+
         # 1. Union-find over reciprocal (near-proof) pairs.
         uf = UnionFind()
         for pair in mutual:
@@ -212,6 +229,21 @@ def main() -> None:
 
         # 2. Materialize components as artists (or flag conflicts).
         for members in components.values():
+            # Giant-component guard: 4+ accounts on one identity platform in a
+            # single "mutual" component means chained project/collective links,
+            # not one person — a human decides, nothing auto-merges.
+            comp_platforms = Counter(accounts[m]["platform_slug"] for m in members
+                                     if m in accounts)
+            if comp_platforms and max(comp_platforms.values()) > policy.MAX_SAME_PLATFORM:
+                key = f"{min(members)}:{len(members)}"
+                if not review_exists(conn, "other", "component_key", key):
+                    add_review_item(conn, "other", {
+                        "type": "giant_component",
+                        "component_key": key,
+                        "account_ids": sorted(members),
+                        "platform_counts": dict(comp_platforms),
+                    }, stats)
+                continue
             artist_ids = {membership[m] for m in members if m in membership}
             if len(artist_ids) > 1:
                 if not review_exists(conn, "cluster_merge", "artist_ids",
@@ -235,6 +267,7 @@ def main() -> None:
                 if m not in membership and not db.is_suppressed(conn, m):
                     add_member(conn, artist_id, m, "near_proof", {"via": "reciprocal"})
                     membership[m] = artist_id
+                    note_attach(artist_id, m)
                     stats["members_added"] += 1
 
         # 2b. Reverse-attach on platform-verified links: a profile_field edge
@@ -251,11 +284,12 @@ def main() -> None:
             src, tgt = edge["source_account_id"], edge["target_account_id"]
             if src in membership or tgt not in membership:
                 continue
-            if db.is_suppressed(conn, src):
+            if db.is_suppressed(conn, src) or not cap_ok(membership[tgt], src):
                 continue
             add_member(conn, membership[tgt], src, "near_proof",
                        {"via": "platform_verified_link", "edge_id": edge["id"]})
             membership[src] = membership[tgt]
+            note_attach(membership[src], src)
             stats["reverse_attached"] += 1
 
         # 3. Singletons: roster-sourced accounts with no membership survive on
@@ -361,12 +395,15 @@ def main() -> None:
             src, tgt = edge["source_account_id"], edge["target_account_id"]
             if frozenset((src, tgt)) in mutual or src not in membership:
                 continue
-            if tgt in shared_targets:
-                stats["skipped_shared_target"] += 1
-                continue
             src_artist = membership[src]
             tgt_artist = membership.get(tgt)
             if tgt_artist == src_artist:
+                continue
+            # Popularity makes an account a shared TARGET of many bios, but a
+            # platform-verified claim overrides that — the platform says this
+            # specific one is theirs. Everything weaker defers to the guard.
+            if tgt in shared_targets and edge["evidence_type"] != "profile_field":
+                stats["skipped_shared_target"] += 1
                 continue
             if tgt_artist is not None:
                 # Dedupe by artist PAIR — the same two artists conflicting via
@@ -382,6 +419,17 @@ def main() -> None:
             if db.is_suppressed(conn, tgt):
                 continue
             followers = accounts[tgt]["followers_count"] or 0
+            # Platform-verified links (Skeb OAuth twitter etc.) are exempt
+            # from suspicion checks in the forward direction too — the
+            # platform vouches, prominence is irrelevant.
+            if edge["evidence_type"] == "profile_field":
+                if cap_ok(src_artist, tgt):
+                    add_member(conn, src_artist, tgt, "near_proof",
+                               {"via": "platform_verified_link", "edge_id": edge["id"]})
+                    membership[tgt] = src_artist
+                    note_attach(src_artist, tgt)
+                    stats["members_added"] += 1
+                continue
             # Mention-based alt claims ("nsfw alt: @x") are the weakest
             # same-person evidence — always a human call, never an auto-attach.
             if edge["evidence_type"] == "bio_mention":
@@ -395,19 +443,29 @@ def main() -> None:
                         "evidence": "bio_mention",
                     }, stats)
                 continue
-            if followers >= policy.REVIEW_FOLLOWER_THRESHOLD:
-                if not pending_review_exists(conn, "one_directional_attach", "edge_id", edge["id"]):
+            # A one-directional bio link may bring an artist their FIRST
+            # account on a platform; a second same-platform account through
+            # this weak path is usually a project/collab — human decides.
+            second_same_platform = \
+                platform_counts[src_artist][accounts[tgt]["platform_slug"]] >= 1
+            if (followers >= policy.REVIEW_FOLLOWER_THRESHOLD
+                    or second_same_platform or not cap_ok(src_artist, tgt)):
+                if not review_exists(conn, "one_directional_attach", "edge_id", edge["id"]):
                     add_review_item(conn, "one_directional_attach", {
                         "edge_id": edge["id"],
                         "artist_id": src_artist,
                         "source_account_id": src,
                         "target_account_id": tgt,
                         "target_followers": followers,
+                        "reason": ("prominent_target"
+                                   if followers >= policy.REVIEW_FOLLOWER_THRESHOLD
+                                   else "second_same_platform"),
                     }, stats)
             else:
                 add_member(conn, src_artist, tgt, "strong",
                            {"via": "one_directional", "edge_id": edge["id"]})
                 membership[tgt] = src_artist
+                note_attach(src_artist, tgt)
                 stats["members_added"] += 1
 
         conn.commit()

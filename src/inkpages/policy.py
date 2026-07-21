@@ -12,6 +12,12 @@
 # accounts, so that is exactly where a lone bio link stops being sufficient.
 REVIEW_FOLLOWER_THRESHOLD = 10_000
 
+# No artist may accumulate more than this many accounts on one identity
+# platform via clustering — nobody has 12 Twitters; a growing pile of
+# same-platform accounts means a chain reaction through shared/project links.
+# Attaches beyond the cap go to review; components beyond it never auto-merge.
+MAX_SAME_PLATFORM = 3
+
 # No post/repost within this window => the account is labeled dormant.
 # Mirrored in the directory_entries view (migration 0006) — keep in sync.
 DORMANT_AFTER_DAYS = 180

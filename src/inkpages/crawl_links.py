@@ -116,7 +116,9 @@ def resolve_shorteners(conn, client, platforms, stats):
                                evidence_type="bio_link",
                                evidence_snapshot_id=row["snapshot_id"],
                                evidence_url=f"{short} -> {final}",
-                               matched_text=None)
+                               matched_text=None,
+                               claim="related" if link.platform == "website" else "same_person",
+                               relation_hint="website" if link.platform == "website" else None)
                 stats["edges_from_shorteners"] += 1
 
 
