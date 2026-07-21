@@ -42,10 +42,13 @@ Sources by column:
   policy); potofu.me / lit.link hubs; booru hints.
 - **Western**: one-time bounded **#PortfolioDay harvest** via paid X API search
   (the linchpin for Twitter-native Western artists — posts are self-published,
-  and bios arrive at hydration); curated Twitter Lists (members via cheap user
-  reads); Patreon art-category rankings (via Graphtreon — *verify it still
-  exists before building this worker*); convention artist-alley exhibitor
-  lists; Bluesky-exodus accounts whose bios link back to Twitter; Cara,
+  and bios arrive at hydration). The purchased post payloads are also mined
+  for a free second-order roster: mentions and quote/reply authors embedded in
+  the already-paid JSON are candidate artists at no extra read cost
+  (`discovered_via = 'portfolioday_mention'`). Curated Twitter Lists (members
+  via cheap user reads); Patreon art-category rankings (via Graphtreon —
+  *verify it still exists before building this worker*); convention
+  artist-alley exhibitor lists; Bluesky-exodus accounts whose bios link back to Twitter; Cara,
   ArtStation, DeviantArt (official API + noai flags), Tumblr (public API),
   VGen, Ko-fi, Gumroad, INPRNT.
 - **Bluesky**: fully open AT Protocol — enumerate via art feeds, starter
@@ -54,6 +57,16 @@ Sources by column:
 
 Discovery workers consult `suppressions` before inserting: an opted-out
 artist's accounts are never re-added.
+
+**Twitter-native artists with no external links are kept.** A high-follower
+artist who links to nothing — no bio links, no hub, no other platforms — must
+not fall out of the pipeline for lack of edges. Any account arriving via a
+roster source (`policy.ROSTER_SOURCES`: the #PortfolioDay harvest,
+mention-mining, curated Lists, creator rankings, Bluesky feeds/packs/lists)
+is a full candidate on its own: it survives hydration and becomes a singleton
+artist at clustering (stage 5). Edges are required for *multi-account*
+clustering, never for existence. Discovery breadth for this group comes from
+the harvest, Lists, and mention-mining combined.
 
 ## Stage 2 — Hint verification
 
@@ -100,6 +113,11 @@ including hub-mediated reciprocity. Then:
   a human review queue, since impersonators link *to* famous accounts.
 - `same_handle` edges never merge anything; they surface as review
   suggestions only.
+- Edge-less accounts are not dropped: an account whose `discovered_via` is a
+  roster source (`policy.ROSTER_SOURCES`) becomes a **singleton artist** —
+  this is how Twitter-only artists with large followings survive to ranking.
+  Accounts discovered only incidentally (bio-link targets that never
+  reciprocated) do not spawn artists without an edge or a human decision.
 - All merges/splits/attachments emit `artist_events`; clustering never
   overrides a `removed_at` membership closed by a human.
 
