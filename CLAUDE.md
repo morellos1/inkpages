@@ -21,9 +21,21 @@ CSRF/perf, cleanup). Key new behavior:
   hubs > skeb > pixiv, fallback handle then `artists.display_name`); new
   `hydrated_at` column (newest snapshot of a member twitter account, else
   newest overall) backs the sortable one-line "updated" column. Directory is
-  **SFW by default** — 18+ artists appear only via the "show 18+" filter
-  toggle (`show18=1`) or the 18+-only flag. `review_ui` honors `$PORT`
-  (launch.json has `autoPort: true`).
+  **SFW by default** — 18+ artists appear only via the single "show 18+"
+  filter toggle (`show18=1`; the nsfw-only flag is URL-compatible but no
+  longer a checkbox). `review_ui` honors `$PORT` (launch.json has
+  `autoPort: true`).
+- **Migration 0026**: same-platform ties in the name/avatar/accounts
+  ordering break by followers desc (an artist's low-follower サブアカ was
+  naming them over the main). Twitter pattern excludes reserved paths
+  (`widgets`, `messages`, `settings`, `intent/` etc. — twitter.com/widgets.js
+  on hub pages had wired a junk account to 35 artists). Avatars backfilled +
+  262 pre-avatar-era accounts re-hydrated: only 12 directory artists lack a
+  pfp. Platform filter checkboxes: display_rank order, most-common first
+  within a rank. Review UI: scroll position survives decide/confirm POSTs;
+  anomaly queue is one card per artist (bulk_decide takes comma-joined ids);
+  artist pages have a per-account nsfw column (18+ chip only with evidence,
+  else "safe" — artists keep 18+ alts).
 - **profcard.info / twpf.jp / tsunagu.cloud are crawlable `link_hub`
   platforms** (migration 0025, display_rank 15 so an opaque profcard uid
   never wins the name derivation). `crawl_links.SERVICE_ACCOUNTS` blocklists
@@ -82,7 +94,7 @@ CSRF/perf, cleanup). Key new behavior:
   by the sub-50-follower cull; +~13 from the 2026-07-21 shortener-recovery
   and hub-crawl passes), ~13.9k accounts, 1,047 flagged 18+, 118
   no-AI badged. Languages: ~1,854 ja /
-  ~693 en / ~101 zh / ~24 ko. Paid X spend: $31.50 of $100.
+  ~693 en / ~101 zh / ~24 ko. Paid X spend: $34.12 of $100.
 - **Discovery live**: Bluesky (free), Skeb (free — Algolia ranking +
   `--hydrate-known`), Pixiv (free — SFW rankings + **tag-search harvest**:
   `--tag オリジナル --tag-mode r18 --tag-order popular_d --new-only --max-new N`;
