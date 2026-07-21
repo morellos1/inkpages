@@ -196,16 +196,19 @@ def main() -> None:
         if not args.no_activity:
             from datetime import datetime
 
+            # Network round-trips first, DB writes after — never hold a
+            # cursor/transaction open across N sequential API calls.
+            activity = {p["did"]: ts for p in profiles
+                        if (ts := bsky.last_post_time(p["did"]))}
             with conn.cursor() as cur:
-                for profile in profiles:
-                    if ts := bsky.last_post_time(profile["did"]):
-                        cur.execute(
-                            """update accounts set last_post_at = %s
-                               where platform_id = %s and native_id = %s""",
-                            (datetime.fromisoformat(ts.replace("Z", "+00:00")),
-                             platforms["bluesky"], profile["did"]),
-                        )
-                        stats["activity_updated"] += 1
+                for did, ts in activity.items():
+                    cur.execute(
+                        """update accounts set last_post_at = %s
+                           where platform_id = %s and native_id = %s""",
+                        (datetime.fromisoformat(ts.replace("Z", "+00:00")),
+                         platforms["bluesky"], did),
+                    )
+                    stats["activity_updated"] += 1
             conn.commit()
 
         for endpoint, units in sorted(bsky.calls.items()):

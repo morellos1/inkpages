@@ -87,7 +87,6 @@ class XApi:
                 continue
             resp.raise_for_status()
             return resp.json()
-        raise RuntimeError("unreachable")
 
     def search_recent(self, query: str, max_posts: int, note: str | None = None):
         """Returns (posts_read, users_by_id). Author profiles arrive via the

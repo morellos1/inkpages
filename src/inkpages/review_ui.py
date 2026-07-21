@@ -507,8 +507,13 @@ Solid boxes are accounts we've verified; a dashed box is the account being judge
   link components, open-harvest accounts with no artist evidence, and link graphs
   shaped like credits pages (anomaly flags).</p></div>
 <div class="card"><b>Human decisions are sacred</b>
-  <p class="muted">A manual detach never re-attaches automatically; a suppression
-  (opt-out) survives re-discovery forever ({{ c.suppressed }} active).</p></div>
+  <p class="muted">A manual detach never re-attaches automatically — not even
+  through a later merge. A rejected merge ("these are different people") blocks
+  that pair from ever auto-merging again. A suppression (opt-out) survives
+  re-discovery forever ({{ c.suppressed }} active); an account-scoped
+  suppression hides just that account, an artist-scoped one hides the whole
+  artist. Accounts hidden by a verification cull stay hidden through every
+  refresh until an admin lifts them.</p></div>
 <div class="card"><b>Self-healing</b>
   <p class="muted">All merges trace to stored page snapshots. If a re-parse no
   longer finds the link that justified a join, the join is undone automatically —

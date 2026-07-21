@@ -10,10 +10,49 @@ is displayed strictly as the artist's own attestation, never our classification.
 Full brief: `~/Desktop/artist-directory-brief.md` (outside the repo). Design
 rationale: `docs/schema.md` and `docs/pipeline.md`.
 
-## Current state (2026-07-21)
+## Current state (2026-07-21, post-audit)
 
-- **2,607 listed artists** (+89 hidden by the sub-50-follower cull), ~13.7k
-  accounts, 1,049 flagged 18+, 120 no-AI badged. Languages: ~1,847 ja /
+A full app+DB audit ran on 2026-07-21; all fixes landed (5 commits: invariant
+fixes, migration 0022/0023 hardening, edge-churn fixes, review-UI
+CSRF/perf, cleanup). Key new behavior:
+
+- **Rejected `cluster_merge` pairs never auto-merge again** (`merge_rejected`
+  checked in step 2 + `try_reciprocal_artist_merge`); step-2 auto-merges
+  resolve pending items (`pipeline:reciprocal_component`).
+- **`merge_artists` honors admin detaches on the keeper** (skips those
+  accounts, logs `admin_blocked_accounts` in the merge event).
+- **Paid X spend is ledgered per page/batch inside `XApi`** (crash-safe);
+  callers no longer call `log_api_usage`. Search never reads past
+  `--max-posts`.
+- **`status='hidden'` survives everything** (hydration, `--refresh`, link
+  checks, hub crawls) — only explicit admin SQL lifts a cull.
+- **Skeb structured links are `profile_field`** via shared
+  `emit_structured_edges()` (discover_skeb + reextract) — the
+  retract/re-add churn is gone; the fix healed ~500 memberships and
+  auto-merged 5 artist pairs on first run.
+- **Step 4b re-checks all flipped hints** (`secondary_link`,
+  `over_platform_cap`, `unreciprocated_prominent`) against their original
+  conditions.
+- **Migration 0022**: `evidence_snapshot_id NOT NULL` (edges+attestations);
+  account-scoped suppressions hide only that account in
+  `directory_entries` (artist-scoped still hides the artist); partial
+  unique indexes on in-force suppressions; `artist_events` expression
+  indexes for heal/guard/reextract paths; `merged_into` chains collapse on
+  merge. Migration 0023: `resolved_links` shortener cache
+  (`resolve_shorteners` is throttled + suppression-guarded).
+- **Review UI**: per-process CSRF token on every POST (403 without);
+  `/img` proxy no longer follows redirects; queue enrichment batched;
+  index stats cached 60s (cleared on POST); anomaly/giant-component items
+  use Acknowledge/Dismiss and never fake a merge; approving a stale
+  `cluster_merge` skips already-merged artists.
+- `smoke.sql` now runs against a populated dev DB (fixture-scoped asserts)
+  and covers NOT NULL provenance, no merge chains, suppression scoping.
+
+## Previous state (2026-07-21 morning)
+
+- **2,596 listed artists** (post-audit healing merged duplicates; +89 hidden
+  by the sub-50-follower cull), ~13.7k accounts, 1,046 flagged 18+, 119
+  no-AI badged. Languages: ~1,847 ja /
   ~637 en / ~101 zh / ~22 ko.
 - **Discovery live**: Bluesky (free), Skeb (free — Algolia ranking +
   `--hydrate-known`), Pixiv (free — SFW rankings + **tag-search harvest**:
@@ -31,7 +70,8 @@ rationale: `docs/schema.md` and `docs/pipeline.md`.
 - **Not built yet**: stratified ranking runs, Bluesky list/starter-pack
   expansion, Graphtreon/Patreon, ArtStation/Cara/DeviantArt/Tumblr, the public
   site.
-- Review queue: **33 pending** — 11 `cluster_merge` + 22 anomalies/other.
+- Review queue: **27 pending** — 6 `cluster_merge` + 21 anomalies/other
+  (post-audit counts; 20 artists additionally sit in `needs_review`).
   Artist-level cyclical references now auto-merge (see clustering model), which
   drained 10 of the old 21 merge conflicts. **99 more unresolved same-person
   claims across 74 artists** are now visible+attachable on artist pages (see
