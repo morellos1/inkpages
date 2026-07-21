@@ -5,6 +5,7 @@ Usage: uv run python -m inkpages.review_ui   (then open http://127.0.0.1:8322)
 Local admin tooling — binds to 127.0.0.1 only.
 """
 import json
+import os
 import secrets
 import time
 
@@ -15,7 +16,7 @@ from psycopg.rows import dict_row
 
 from . import db
 
-PORT = 8322
+PORT = int(os.environ.get("PORT", "8322"))
 
 TEMPLATES = {
 "base.html": """<!doctype html><html><head><meta charset="utf-8">
@@ -221,15 +222,16 @@ document.querySelectorAll('.bio').forEach(function (box) {
 <input type="hidden" name="sort" value="{{ sort }}"><input type="hidden" name="dir" value="{{ dir }}">
 <p><input type="text" name="q" value="{{ q }}" placeholder="search slug / name / handle" autofocus>
 <button class="warn">Search</button>
-{% set any_filter = sel_platforms or sel_langs or sel_flags or sel_sources or sel_comms %}
+{% set any_filter = sel_platforms or sel_langs or sel_flags or sel_sources or sel_comms or show18 %}
 {% if q or any_filter %}<a class="linkish" href="{{ url_for('index') }}" style="margin-left:.6rem">clear all</a>{% endif %}</p>
 <details class="filters" {% if any_filter %}open{% endif %}>
-  <summary>Filters{% set n = sel_platforms|length + sel_langs|length + sel_flags|length + sel_sources|length + sel_comms|length %}{% if n %} <span class="pill">{{ n }}</span>{% endif %}</summary>
+  <summary>Filters{% set n = sel_platforms|length + sel_langs|length + sel_flags|length + sel_sources|length + sel_comms|length + (1 if show18 else 0) %}{% if n %} <span class="pill">{{ n }}</span>{% endif %}</summary>
   <div class="filter-body">
     <div class="facet"><div class="facet-label">Flags</div><div class="facet-opts">
       {% for val, lbl in flag_labels %}
       <label><input type="checkbox" name="flag" value="{{ val }}" {% if val in sel_flags %}checked{% endif %}>{{ lbl }}</label>
       {% endfor %}
+      <label><input type="checkbox" name="show18" value="1" {% if show18 %}checked{% endif %}>show 18+ <span class="muted">(hidden by default)</span></label>
     </div></div>
     <div class="facet"><div class="facet-label">Commissions open <span class="muted">(all selected must hold)</span></div><div class="facet-opts">
       {% for val, lbl in comms_labels %}
@@ -278,7 +280,7 @@ document.querySelectorAll('.bio').forEach(function (box) {
         {% if a.commissions.pixiv_open %}<span class="chip badge-open">pixiv open</span>{% endif %}
         {% if a.commissions.bio_status %}<span class="chip badge-{{ a.commissions.bio_status }}">comms {{ a.commissions.bio_status }}</span>{% endif %}
       {% endif %}</td>
-  <td class="muted">{{ a.commissions.checked_at[:10] if a.commissions and a.commissions.checked_at else "—" }}</td>
+  <td class="muted" style="white-space:nowrap">{{ a.hydrated_at.strftime('%Y-%m-%d') if a.hydrated_at else "—" }}</td>
 </tr>{% endfor %}</table>
 {% if pages > 1 %}<div class="pager">
   {% if page > 1 %}<a href="?{{ qs_with(page=page-1) }}">‹ prev</a>{% endif %}
@@ -613,7 +615,7 @@ SORT_COLUMNS = {
     "artist": "de.public_slug",
     "lang": "de.language",
     "followers": "followers",
-    "updated": "(de.commissions ->> 'checked_at')",
+    "updated": "de.hydrated_at",
 }
 # Flag filters → a SQL predicate on a directory_entries row aliased `de`.
 FLAG_SQL = {
@@ -799,6 +801,7 @@ def index():
     sel_flags = [f for f in request.args.getlist("flag") if f in FLAG_SQL]
     sel_sources = [s for s in request.args.getlist("source") if s in SOURCE_OPTIONS]
     sel_comms = [c for c in request.args.getlist("comms") if c in COMMS_SQL]
+    show18 = request.args.get("show18") == "1"
     try:
         page = max(1, int(request.args.get("page", 1)))
     except ValueError:
@@ -823,6 +826,10 @@ def index():
         params["sources"] = sel_sources
     where += [FLAG_SQL[f] for f in sel_flags]   # each selected flag is required
     where += [COMMS_SQL[c] for c in sel_comms]  # each selected comms is required
+    # SFW by default: 18+ artists are hidden unless the "show 18+" toggle is on
+    # or the 18+-only flag filter is selected (which would match nothing here).
+    if not show18 and "nsfw" not in sel_flags:
+        where.append("not de.nsfw")
     where_sql = " and ".join(where)
     base = f"from directory_entries de where {where_sql}"
 
@@ -857,6 +864,7 @@ def index():
         return render_template("index.html", artists=artists, stats=stats, q=query,
                                sort=sort, dir=direction, sel_platforms=sel_platforms,
                                sel_langs=sel_langs, sel_flags=sel_flags, flag_labels=FLAG_LABELS,
+                               show18=show18,
                                sel_sources=sel_sources, source_options=SOURCE_OPTIONS,
                                sel_comms=sel_comms, comms_labels=COMMS_LABELS,
                                platform_options=platform_options, lang_options=lang_options,
