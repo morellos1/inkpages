@@ -89,6 +89,17 @@ accounts into existing artists at near-proof), authoritative commission
 status, and native stats (completed works, complete rate, NSFW acceptance)
 stored in `accounts.platform_stats`.
 
+### Pixiv discovery (Eastern column, free)
+
+```sh
+uv run python -m inkpages.discover_pixiv --hydrate-known --rank-pages 6
+```
+
+Hydrates every referenced pixiv account via the public user ajax endpoint
+(bio, registered social links, avatar, JP-region signal, commission
+acceptance) and discovers new artists from the SFW illust rankings
+(weekly/monthly/original), rank kept as an auxiliary signal.
+
 ### Link crawling & Twitter
 
 ```sh
