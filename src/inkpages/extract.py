@@ -258,7 +258,7 @@ _LINK_PATTERNS: list[tuple[str, re.Pattern]] = [
     # Lookbehind rejects multi-level subdomains: 64.media.tumblr.com is CDN
     # infrastructure, not a blog.
     ("tumblr", re.compile(r"(?<![\w.-])(?P<handle>[A-Za-z0-9-]+)\.tumblr\.com", re.I)),
-    ("tumblr", re.compile(r"tumblr\.com/(?!tagged\b|search\b|blog\b|post\b|share\b|app\b|apps\b|explore\b|dashboard\b|reblog\b|liked\b|likes\b|settings\b|login\b|register\b|about\b|policy\b|download\b)(?P<handle>[A-Za-z0-9-]+)", re.I)),
+    ("tumblr", re.compile(r"tumblr\.com/(?!tagged\b|search\b|blog\b|post\b|share\b|app\b|apps\b|explore\b|dashboard\b|reblog\b|liked\b|likes\b|settings\b|login\b|register\b|about\b|policy\b|download\b|contact\b|support\b|help\b|terms\b|privacy\b|jobs\b|press\b|themes\b|communities\b|security\b)(?P<handle>[A-Za-z0-9-]+)", re.I)),
     ("gumroad", re.compile(r"(?<![\w.-])(?P<handle>[A-Za-z0-9]+)\.gumroad\.com", re.I)),
     ("inprnt", re.compile(r"inprnt\.com/gallery/(?P<handle>\w+)", re.I)),
     ("instagram", re.compile(r"instagram\.com/(?!p/|reel/|explore\b)(?P<handle>[A-Za-z0-9._]{1,30})", re.I)),
@@ -297,6 +297,12 @@ _LINK_PATTERNS: list[tuple[str, re.Pattern]] = [
     ("facebook", re.compile(r"facebook\.com/(?!profile\.php|sharer?\b|groups\b|pages\b|events\b|watch\b|marketplace\b|photos?\b|permalink|story|hashtag|login\b|people\b|reel|gaming\b|help\b|policies)(?P<handle>[A-Za-z0-9.]{5,50})", re.I)),
     ("potofu", re.compile(r"potofu\.me/(?P<handle>[\w.-]+)", re.I)),
     ("litlink", re.compile(r"lit\.link/(?:en/|ja/)?(?P<handle>\w+)", re.I)),
+    # JP profile-card hubs (crawled like linktree). profcard handles are
+    # case-sensitive opaque uids (no re.I); twpf handles mirror the owner's
+    # Twitter handle.
+    ("profcard", re.compile(r"profcard\.info/u/(?P<handle>[A-Za-z0-9]+)")),
+    ("twpf", re.compile(r"twpf\.jp/(?P<handle>[A-Za-z0-9_]{1,15})\b", re.I)),
+    ("tsunagu", re.compile(r"tsunagu\.cloud/users/(?P<handle>[\w.-]+)", re.I)),
 ]
 
 # Reserved/infrastructure labels that are never a personal account: share
@@ -328,6 +334,7 @@ _PLATFORM_DOMAINS = {
     "bio.site", "coloso.us", "coloso.global", "coloso.jp", "coloso.co.kr",
     "fanbox.cc", "fantia.jp", "booth.pm", "dlsite.com", "nijie.info",
     "skima.jp", "coconala.com", "skeb.jp",
+    "profcard.info", "twpf.jp", "tsunagu.cloud",
 }
 # Shorteners (opaque), commerce/utility noise, and booru domains — boorus are
 # hint-only by hard rule and must never enter the graph as artist links.

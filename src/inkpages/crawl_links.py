@@ -33,7 +33,8 @@ _TAG_STRIP = re.compile(r"<(?:script|style)[^>]*>.*?</(?:script|style)>|<[^>]+>"
 _LINKED_URL = re.compile(r"""(?:href\s*=|"url"\s*:)\s*["'](https?://[^"']+)["']""",
                          re.IGNORECASE)
 
-HUB_PLATFORMS = ("linktree", "carrd", "potofu", "litlink", "biosite")
+HUB_PLATFORMS = ("linktree", "carrd", "potofu", "litlink", "biosite",
+                 "profcard", "twpf", "tsunagu")
 # Browser-like headers: Linktree 403s obvious bot UAs while serving the same
 # public page to browsers. We fetch one page per hub at a polite rate.
 UA = {

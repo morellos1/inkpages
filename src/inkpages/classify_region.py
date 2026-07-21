@@ -21,7 +21,7 @@ from . import db
 
 EAST_PLATFORMS = {"skeb", "pixiv", "fanbox", "fantia", "booth", "dlsite",
                   "nijie", "skima", "coconala", "mihuashi", "xfolio",
-                  "litlink", "potofu"}
+                  "litlink", "potofu", "profcard", "twpf", "tsunagu"}
 WEST_PLATFORMS = {"artstation", "furaffinity", "inprnt", "deviantart"}
 
 _KANA = re.compile(r"[぀-ヿ]")
