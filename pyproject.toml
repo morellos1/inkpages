@@ -1,0 +1,8 @@
+[project]
+name = "inkpages"
+version = "0.1.0"
+description = "No-AI artist directory: identity-resolution schema and pipeline"
+requires-python = ">=3.11"
+dependencies = [
+    "psycopg[binary]>=3.1",
+]
