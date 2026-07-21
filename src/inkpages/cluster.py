@@ -8,8 +8,9 @@ Rules (docs/schema.md tradeoffs 3, 5; docs/pipeline.md stage 5):
 - A one-directional edge attaches its target at 'strong' confidence, unless
   the target is prominent (policy.REVIEW_FOLLOWER_THRESHOLD) — those become
   review_items for a human, since impersonators link *to* famous accounts.
-- Components containing two existing artists are never auto-merged; they
-  become 'cluster_merge' review items.
+- Two existing artists that reference each other — a reciprocal component, or
+  artist-level cyclical claims through any member accounts — auto-merge
+  (cap-guarded); ambiguous conflicts become 'cluster_merge' review items.
 - Human decisions are never overridden: memberships closed by a human stay
   closed, and clustering only ever *adds*.
 
@@ -462,6 +463,83 @@ def main() -> None:
                     < policy.REVIEW_FOLLOWER_THRESHOLD
             )
 
+        # Edges the prominence guard flipped to `related` are still directed
+        # same-person claims — demoted only because reciprocity was missing at
+        # the time. Loaded once: step 4 counts them as artist-level back-links,
+        # step 4b re-checks them for shared-hub reciprocity.
+        from psycopg.rows import dict_row
+
+        with conn.cursor(row_factory=dict_row) as fcur:
+            fcur.execute(
+                """select id, source_account_id, target_account_id
+                   from identity_edges
+                   where status = 'present' and claim = 'related'
+                     and relation_hint = 'unreciprocated_prominent'"""
+            )
+            reflips = fcur.fetchall()
+        flipped_out: dict[int, list[tuple[int, int]]] = defaultdict(list)
+        for e in reflips:
+            flipped_out[e["source_account_id"]].append(
+                (e["target_account_id"], e["id"]))
+
+        def artist_directed_claims(from_artist: int, to_artist: int):
+            """(has_live_same_person_edge, flipped_edge_ids) for directed
+            claims from any account of from_artist to any of to_artist."""
+            same, flipped = False, []
+            for m in members_by_artist.get(from_artist, ()):
+                for t in out_targets.get(m, ()):
+                    if membership.get(t) == to_artist:
+                        same = True
+                for t, eid in flipped_out.get(m, ()):
+                    if membership.get(t) == to_artist:
+                        flipped.append(eid)
+            return same, flipped
+
+        def artist_suppressed(artist_id: int) -> bool:
+            with conn.cursor() as scur:
+                scur.execute("""select 1 from suppressions
+                                where lifted_at is null and artist_id = %s limit 1""",
+                             (artist_id,))
+                return scur.fetchone() is not None
+
+        def try_reciprocal_artist_merge(a: int, b: int) -> bool:
+            """Two existing artists whose clusters reference each other — in
+            either direction, through any member account, counting flipped
+            prominent claims — are cyclically linked: the same near-proof as a
+            mutual account pair. Merge them, restore the flipped edges, and
+            answer any pending human question for the pair."""
+            fwd_same, fwd_flipped = artist_directed_claims(a, b)
+            back_same, back_flipped = artist_directed_claims(b, a)
+            if not (fwd_same or fwd_flipped) or not (back_same or back_flipped):
+                return False
+            combined = platform_counts[a] + platform_counts[b]
+            if combined and max(combined.values()) > policy.MAX_SAME_PLATFORM:
+                return False
+            if artist_suppressed(a) or artist_suppressed(b):
+                return False
+            keeper, loser = sorted((a, b))
+            pair = json.dumps([keeper, loser])
+            merge_artists(conn, keeper, [loser])
+            for acc, aid in list(membership.items()):
+                if aid == loser:
+                    membership[acc] = keeper
+            members_by_artist[keeper] |= members_by_artist.pop(loser, set())
+            platform_counts[keeper] = combined
+            with conn.cursor() as ecur:
+                for eid in fwd_flipped + back_flipped:
+                    ecur.execute(
+                        """update identity_edges set claim = 'same_person',
+                               relation_hint = 'artist_reciprocity'
+                           where id = %s and claim = 'related'""", (eid,))
+                ecur.execute(
+                    """update review_items
+                       set status = 'approved', resolved_at = now(),
+                           decided_by = 'pipeline:artist_reciprocity'
+                       where kind = 'cluster_merge' and status = 'pending'
+                         and payload ->> 'artist_ids' = %s""", (pair,))
+            stats["artist_reciprocity_merged"] += 1
+            return True
+
         with conn.cursor() as cur:
             for tgt in shared_targets:
                 cur.execute(
@@ -498,6 +576,10 @@ def main() -> None:
                 stats["skipped_shared_target"] += 1
                 continue
             if tgt_artist is not None:
+                # Cyclical cross-artist references (this edge points
+                # src_artist -> tgt_artist; anything points back) auto-merge.
+                if try_reciprocal_artist_merge(src_artist, tgt_artist):
+                    continue
                 # Dedupe by artist PAIR — the same two artists conflicting via
                 # several edges must ask the human exactly once.
                 pair = json.dumps(sorted({src_artist, tgt_artist}))
@@ -570,21 +652,19 @@ def main() -> None:
         # would otherwise stay stuck forever. Reciprocity can appear later (a hub
         # gets crawled, the target's own links get extracted); when >=2 of the
         # artist's distinctive hubs are now shared, attach and restore the edge.
-        from psycopg.rows import dict_row
-
-        with conn.cursor(row_factory=dict_row) as cur:
-            cur.execute(
-                """select id, source_account_id, target_account_id
-                   from identity_edges
-                   where status = 'present' and claim = 'related'
-                     and relation_hint = 'unreciprocated_prominent'"""
-            )
-            reflips = cur.fetchall()
+        # A flipped edge whose endpoints now sit in two different artists is the
+        # cyclical-reference case again (both directions may have been flipped) —
+        # try the artist-level merge first.
         for edge in reflips:
             src, tgt = edge["source_account_id"], edge["target_account_id"]
             src_artist = membership.get(src)
+            tgt_artist = membership.get(tgt)
+            if (src_artist is not None and tgt_artist is not None
+                    and tgt_artist != src_artist):
+                try_reciprocal_artist_merge(src_artist, tgt_artist)
+                continue
             if (src_artist is None or tgt not in accounts
-                    or membership.get(tgt) is not None or tgt in shared_targets):
+                    or tgt_artist is not None or tgt in shared_targets):
                 continue
             if platform_counts[src_artist][accounts[tgt]["platform_slug"]] >= 1:
                 continue  # would be a second same-platform account — stay cautious

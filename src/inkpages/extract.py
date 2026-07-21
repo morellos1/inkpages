@@ -280,6 +280,12 @@ _LINK_PATTERNS: list[tuple[str, re.Pattern]] = [
     ("carrd", re.compile(r"(?<![\w.-])(?P<handle>[A-Za-z0-9-]+)\.carrd\.co", re.I)),
     # Misskey — Mastodon-style JP social instances; the local handle is stable.
     ("misskey", re.compile(r"misskey\.(?:io|design|art)/@(?P<handle>[A-Za-z0-9_]+)", re.I)),
+    # Weibo — uid paths (stable) and vanity names; /n/ display-name redirects
+    # and site sections are excluded.
+    ("weibo", re.compile(r"weibo\.(?:com|cn)/(?:u/)?(?P<native_id>\d{6,})", re.I)),
+    ("weibo", re.compile(r"weibo\.(?:com|cn)/(?!u/|n/|p/|tv/|hot/|search|login|signup)(?P<handle>[A-Za-z][A-Za-z0-9_-]{2,29})\b", re.I)),
+    ("facebook", re.compile(r"facebook\.com/profile\.php\?id=(?P<native_id>\d+)", re.I)),
+    ("facebook", re.compile(r"facebook\.com/(?!profile\.php|sharer?\b|groups\b|pages\b|events\b|watch\b|marketplace\b|photos?\b|permalink|story|hashtag|login\b|people\b|reel|gaming\b|help\b|policies)(?P<handle>[A-Za-z0-9.]{5,50})", re.I)),
     ("potofu", re.compile(r"potofu\.me/(?P<handle>[\w.-]+)", re.I)),
     ("litlink", re.compile(r"lit\.link/(?:en/|ja/)?(?P<handle>\w+)", re.I)),
 ]
@@ -302,6 +308,7 @@ _DOMAIN_OF = re.compile(r"^(?:https?://)?(?:www\.)?([A-Za-z0-9.-]+)", re.I)
 
 _PLATFORM_DOMAINS = {
     "x.com", "twitter.com", "bsky.app", "pixiv.net", "skeb.jp",
+    "weibo.com", "weibo.cn", "facebook.com", "fb.com",
     "artstation.com", "patreon.com", "ko-fi.com", "vgen.co", "cara.app",
     "xfolio.jp", "deviantart.com", "tumblr.com", "gumroad.com", "inprnt.com",
     "instagram.com", "linktr.ee", "tr.ee", "carrd.co", "potofu.me", "lit.link",

@@ -193,7 +193,7 @@ document.querySelectorAll('.bio').forEach(function (box) {
 </details>
 </form>
 <p class="muted">{{ "{:,}".format(total) }} match{{ '' if total == 1 else 'es' }}{% if total > per_page %} · page {{ page }} of {{ pages }}{% endif %}.</p>
-<table><tr><th></th>{{ sorth('artist','artist') }}{{ sorth('lang','lang') }}{{ sorth('followers','followers') }}<th>accounts</th><th>flags</th></tr>
+<table><tr><th></th>{{ sorth('artist','artist') }}{{ sorth('lang','lang') }}{{ sorth('followers','followers') }}<th>accounts</th><th>flags</th>{{ sorth('updated','updated') }}</tr>
 {% for a in artists %}<tr>
   <td>{% if a.avatar_url %}<img src="{{ img_src(a.avatar_url) }}" width="36" height="36" style="border-radius:50%;object-fit:cover" loading="lazy">{% endif %}</td>
   {# When the slug is an opaque pixiv id, lead with the human name. #}
@@ -209,9 +209,12 @@ document.querySelectorAll('.bio').forEach(function (box) {
       {% if a.nsfw %}<span class="chip badge-nsfw">18+</span>{% endif %}
       {% if 'twitter' not in plats and 'bluesky' not in plats %}<span class="chip badge-suppressed">no X/bsky</span>{% endif %}
       {% if a.dormant %}<span class="chip badge-dormant">dormant</span>{% endif %}
-      {% if a.commissions %}<span class="chip badge-{{ a.commissions.status }}"
-        title="confidence {{ a.commissions.confidence }}">comms {{ a.commissions.status }}
-        · {{ a.commissions.checked_at[:10] }}</span>{% endif %}</td>
+      {% if a.commissions %}
+        {% if a.commissions.skeb_open %}<span class="chip badge-open">skeb open</span>{% endif %}
+        {% if a.commissions.pixiv_open %}<span class="chip badge-open">pixiv open</span>{% endif %}
+        {% if a.commissions.bio_status %}<span class="chip badge-{{ a.commissions.bio_status }}">comms {{ a.commissions.bio_status }}</span>{% endif %}
+      {% endif %}</td>
+  <td class="muted">{{ a.commissions.checked_at[:10] if a.commissions and a.commissions.checked_at else "—" }}</td>
 </tr>{% endfor %}</table>
 {% if pages > 1 %}<div class="pager">
   {% if page > 1 %}<a href="?{{ qs_with(page=page-1) }}">‹ prev</a>{% endif %}
@@ -393,6 +396,7 @@ SORT_COLUMNS = {
     "artist": "de.public_slug",
     "lang": "de.language",
     "followers": "followers",
+    "updated": "(de.commissions ->> 'checked_at')",
 }
 # Flag filters → a SQL predicate on a directory_entries row aliased `de`.
 FLAG_SQL = {
