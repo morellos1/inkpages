@@ -76,7 +76,8 @@ TEMPLATES = {
   <td>{{ a.language }}</td>
   <td>{{ "{:,}".format(a.followers) if a.followers else "—" }}</td>
   <td>{{ a.last_active_at.date() if a.last_active_at else "—" }}</td>
-  <td>{% for acc in a.accounts or [] %}<span class="chip">{{ acc.platform }}: {{ acc.handle }}</span>{% endfor %}</td>
+  <td>{% for s in a.sources or [] %}<span class="chip badge-noai" style="background:#e8edf7;color:#14213d">{{ s }}</span>{% endfor %}
+      {% for acc in a.accounts or [] %}<span class="chip">{{ acc.platform }}: {{ acc.handle }}</span>{% endfor %}</td>
   <td>{% if a.no_ai_attested %}<span class="chip badge-noai">no-AI</span>{% endif %}
       {% if a.nsfw %}<span class="chip badge-nsfw">18+</span>{% endif %}
       {% if a.dormant %}<span class="chip badge-dormant">dormant</span>{% endif %}
@@ -163,32 +164,56 @@ puts an artist back in the directory and permanently exempts them from auto-demo
 {% endblock %}""",
 
 "review.html": """{% extends "base.html" %}{% block content %}
-<h1>Review queue</h1>
-{% if not items %}<p class="muted">Queue is empty — nothing needs a human right now.</p>{% endif %}
-{% for item in items %}
+{% macro decide_buttons(item) %}
+  <form class="inline" method="post" action="{{ url_for('decide', item_id=item.id, decision='approve') }}"><button class="ok">Approve</button></form>
+  <form class="inline" method="post" action="{{ url_for('decide', item_id=item.id, decision='reject') }}"><button class="no">Reject</button></form>
+{% endmacro %}
+<h1>Merge decisions <span class="muted">({{ merge_items|length }})</span></h1>
+{% if not merge_items %}<p class="muted">No merge decisions pending.</p>{% endif %}
+{% for item in merge_items %}
 <div class="card">
   <b>#{{ item.id }} · {{ item.kind }}</b> <span class="muted">{{ item.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
+  {% if item.kind == 'cluster_merge' %}
+    <p>{% for a in item.ctx.artists %}<a href="{{ url_for('artist', artist_id=a.id) }}"><b>{{ a.public_slug }}</b></a>
+       <span class="muted">({{ "{:,}".format(a.followers) if a.followers is not none else "? " }} followers)</span>{% if not loop.last %} + {% endif %}{% endfor %}</p>
+    <p class="muted">Connecting evidence:</p>
+    <ul class="muted">
+    {% for ev in item.ctx.evidence %}
+      <li>{{ ev.src_platform }}:{{ ev.src_handle }} → {{ ev.tgt_platform }}:{{ ev.tgt_handle }}
+          — {{ ev.evidence_type }}{% if ev.claim == 'related' %} (related){% endif %}
+          {% if ev.matched_text %} · “{{ ev.matched_text }}”{% endif %}
+          {% if ev.evidence_url %} · <a href="{{ ev.evidence_url }}" target="_blank">source</a>{% endif %}</li>
+    {% else %}<li>no live edges found (may already be resolved)</li>{% endfor %}
+    </ul>
+    <p class="muted">Approve = merge into <b>{{ item.ctx.keeper_slug }}</b>.</p>
+  {% else %}<pre>{{ item.payload }}</pre>{% endif %}
+  {{ decide_buttons(item) }}
+</div>
+{% endfor %}
+
+<h1>Attach decisions <span class="muted">({{ attach_total }})</span></h1>
+{% for item in attach_items %}
+<div class="card">
+  <b>#{{ item.id }} · {{ item.ctx.reason or item.kind }}</b> <span class="muted">{{ item.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
   {% if item.kind == 'one_directional_attach' %}
     <p><a href="{{ url_for('artist', artist_id=item.ctx.artist_id) }}">{{ item.ctx.artist_slug }}</a>
-    ({{ item.ctx.source_handle }}) links one-directionally to
+    ({{ item.ctx.source_handle }}) claims
     <b>{{ item.ctx.target_platform }}: {{ item.ctx.target_handle }}</b>
-    ({{ "{:,}".format(item.ctx.target_followers) }} followers — prominent, impersonation check).
-    Evidence: <a href="{{ item.ctx.evidence_url }}" target="_blank">{{ item.ctx.evidence_url }}</a></p>
-    <p class="muted">Approve = attach the target account to this artist at strong confidence.</p>
-  {% elif item.kind == 'cluster_merge' %}
-    <p>Evidence connects artists that currently exist separately:
-    {% for a in item.ctx.artists %}<a href="{{ url_for('artist', artist_id=a.id) }}">{{ a.public_slug }}</a>{% if not loop.last %} + {% endif %}{% endfor %}</p>
-    <p class="muted">Approve = merge into <b>{{ item.ctx.keeper_slug }}</b> (slugs of the others redirect).</p>
+    ({% if item.ctx.target_followers is not none %}{{ "{:,}".format(item.ctx.target_followers) }} followers{% else %}followers unknown — not yet hydrated{% endif %})
+    via {{ item.ctx.evidence_type }}{% if item.ctx.matched_text %} · “{{ item.ctx.matched_text }}”{% endif %}
+    {% if item.ctx.evidence_url %} · <a href="{{ item.ctx.evidence_url }}" target="_blank">source</a>{% endif %}</p>
+    <p class="muted">Approve = attach to this artist at strong confidence.</p>
   {% elif item.kind == 'singleton_gate' %}
     <p>Suspected non-artist from an open harvest: <b>{{ item.payload.platform }}: {{ item.payload.handle }}</b>
     ({{ "{:,}".format(item.payload.followers or 0) }} followers, via {{ item.payload.discovered_via }})</p>
     {% if item.ctx.bio %}<div class="bio">{{ item.ctx.bio }}</div>{% endif %}
-    <p class="muted">Approve = list as an artist (permanently exempt from auto-demotion). Reject = keep out.</p>
+    <p class="muted">Approve = list as an artist (permanently exempt from auto-demotion).</p>
   {% else %}<pre>{{ item.payload }}</pre>{% endif %}
-  <form class="inline" method="post" action="{{ url_for('decide', item_id=item.id, decision='approve') }}"><button class="ok">Approve</button></form>
-  <form class="inline" method="post" action="{{ url_for('decide', item_id=item.id, decision='reject') }}"><button class="no">Reject</button></form>
+  {{ decide_buttons(item) }}
 </div>
-{% endfor %}{% endblock %}""",
+{% endfor %}
+{% if attach_total > attach_items|length %}<p class="muted">…and {{ attach_total - attach_items|length }} more attach decisions (decide some to see the rest).</p>{% endif %}
+{% endblock %}""",
 }
 
 app = Flask(__name__)
@@ -353,20 +378,49 @@ def _enrich(conn, item):
                          join artist_accounts aa on aa.account_id = a.id and aa.removed_at is null
                          join artists ar on ar.id = aa.artist_id
                          where a.id = %s""", (payload["source_account_id"],))
+        # Live values — the payload snapshot goes stale (targets get hydrated
+        # after the item was created).
         tgt = q(conn, """select a.handle::text as handle, a.followers_count, p.slug as platform
                          from accounts a join platforms p on p.id = a.platform_id
                          where a.id = %s""", (payload["target_account_id"],))
-        edge = q(conn, "select evidence_url from identity_edges where id = %s", (payload["edge_id"],))
+        edge = q(conn, """select evidence_type, evidence_url, matched_text
+                          from identity_edges where id = %s""", (payload["edge_id"],))
         if src and tgt:
             ctx = {"artist_id": src[0]["artist_id"], "artist_slug": src[0]["public_slug"],
                    "source_handle": src[0]["handle"], "target_handle": tgt[0]["handle"],
                    "target_platform": tgt[0]["platform"],
-                   "target_followers": tgt[0]["followers_count"] or 0,
-                   "evidence_url": edge[0]["evidence_url"] if edge else None}
+                   "target_followers": tgt[0]["followers_count"],
+                   "evidence_type": edge[0]["evidence_type"] if edge else None,
+                   "matched_text": edge[0]["matched_text"] if edge else None,
+                   "evidence_url": edge[0]["evidence_url"] if edge else None,
+                   "reason": payload.get("reason") or payload.get("evidence")}
     elif item["kind"] == "cluster_merge":
         ids = json.loads(payload["artist_ids"])
-        artists = q(conn, "select id, public_slug from artists where id = any(%s) order by id", (ids,))
-        ctx = {"artists": artists, "keeper_slug": artists[0]["public_slug"] if artists else "?"}
+        artists = q(conn, """
+            select ar.id, ar.public_slug,
+                   (select max(a.followers_count) from artist_accounts aa
+                    join accounts a on a.id = aa.account_id
+                    where aa.artist_id = ar.id and aa.removed_at is null) as followers
+            from artists ar where ar.id = any(%s) order by ar.id""", (ids,))
+        # WHAT connects them: every present edge whose endpoints sit in
+        # different artists of this pair.
+        evidence = q(conn, """
+            select e.evidence_type, e.claim, e.evidence_url, e.matched_text,
+                   sa.handle::text as src_handle, sp.slug as src_platform,
+                   ta.handle::text as tgt_handle, tp.slug as tgt_platform
+            from identity_edges e
+            join artist_accounts saa on saa.account_id = e.source_account_id
+                 and saa.removed_at is null and saa.artist_id = any(%(ids)s)
+            join artist_accounts taa on taa.account_id = e.target_account_id
+                 and taa.removed_at is null and taa.artist_id = any(%(ids)s)
+            join accounts sa on sa.id = e.source_account_id
+            join platforms sp on sp.id = sa.platform_id
+            join accounts ta on ta.id = e.target_account_id
+            join platforms tp on tp.id = ta.platform_id
+            where e.status = 'present' and saa.artist_id <> taa.artist_id
+            limit 8""", {"ids": ids})
+        ctx = {"artists": artists, "evidence": evidence,
+               "keeper_slug": artists[0]["public_slug"] if artists else "?"}
     elif item["kind"] == "singleton_gate":
         bio = q(conn, """select bio_text from account_snapshots
                          where account_id = %s order by captured_at desc limit 1""",
@@ -381,8 +435,12 @@ def review():
     with db.connect() as conn:
         items = [_enrich(conn, i) for i in
                  q(conn, "select * from review_items where status = 'pending' order by created_at")]
-        return render_template("review.html", items=items, pending=len(items),
-                               demoted_count=demoted_count(conn))
+        merge_items = [i for i in items if i["kind"] in ("cluster_merge", "other")]
+        attach_items = [i for i in items if i["kind"] not in ("cluster_merge", "other")]
+        return render_template("review.html", merge_items=merge_items,
+                               attach_items=attach_items[:60],
+                               attach_total=len(attach_items),
+                               pending=len(items), demoted_count=demoted_count(conn))
 
 
 def _approve(conn, item):
