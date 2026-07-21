@@ -153,6 +153,23 @@ TEMPLATES = {
 })();
 </script>
 <script>
+// Keep the scroll position across POST -> redirect -> GET round-trips
+// (decide/acknowledge/confirm buttons used to dump the user back at the top).
+(function () {
+  var key = 'scroll:' + location.pathname;
+  document.querySelectorAll('form[method="post" i]').forEach(function (f) {
+    f.addEventListener('submit', function () {
+      sessionStorage.setItem(key, String(window.scrollY));
+    });
+  });
+  var saved = sessionStorage.getItem(key);
+  if (saved !== null) {
+    sessionStorage.removeItem(key);
+    window.scrollTo(0, parseInt(saved, 10) || 0);
+  }
+})();
+</script>
+<script>
 function toggleBio(btn) {
   var box = btn.previousElementSibling;
   var clipped = box.classList.toggle('clip');
@@ -315,12 +332,13 @@ document.querySelectorAll('.bio').forEach(function (box) {
 </div>
 
 <h2>Accounts</h2>
-<table><tr><th>platform</th><th>handle</th><th>confidence</th><th>followers</th><th>last post</th><th>comms</th><th>contact</th><th>bio (latest snapshot)</th><th></th></tr>
+<table><tr><th>platform</th><th>handle</th><th>confidence</th><th>nsfw</th><th>followers</th><th>last post</th><th>comms</th><th>contact</th><th>bio (latest snapshot)</th><th></th></tr>
 {% for acc in accounts %}<tr>
   <td>{{ acc.platform }}</td>
   <td>{{ m.acct_link(acc.platform, acc.handle, acc.profile_url, acc.display_name) }}
       {{ m.stats(acc.platform, acc.platform_stats) }}</td>
   <td class="conf-{{ acc.confidence }}">{{ acc.confidence }}</td>
+  <td>{% if acc.nsfw %}<span class="chip badge-nsfw">18+</span>{% else %}<span class="muted">safe</span>{% endif %}</td>
   <td>{{ "{:,}".format(acc.followers_count) if acc.followers_count else "—" }}</td>
   <td>{{ acc.last_post_at.date() if acc.last_post_at else "—" }}</td>
   <td>{% if acc.commission_status != 'unknown' %}<span class="chip badge-{{ acc.commission_status }}"
@@ -561,23 +579,34 @@ Solid boxes are accounts we've verified; a dashed box is the account being judge
 </div>
 {% endfor %}
 
-<h1>Anomaly flags <span class="muted">({{ anomaly_items|length }})</span></h1>
-{% if not anomaly_items %}<p class="muted">Nothing looks off.</p>{% endif %}
-{% for item in anomaly_items %}
+<h1>Anomaly flags <span class="muted">({{ anomaly_count }} across {{ anomaly_groups|length }} artists)</span></h1>
+{% if not anomaly_groups %}<p class="muted">Nothing looks off.</p>{% endif %}
+{% for g in anomaly_groups %}
+{%- set ids = g['items']|map(attribute='id')|join(',') -%}
 <div class="card">
-  {% if item.payload.type == 'anomaly' %}
-  <b>#{{ item.id }}</b> ⚠️
-  <a href="{{ url_for('artist', artist_id=item.payload.artist_id) }}"><b>{{ item.payload.public_slug }}</b></a>
-  — link graph looks like a credits/projects page:
-  {% for k, v in item.payload.reasons.items() %}<span class="chip badge-nsfw">{{ k }}: {{ v }}</span>{% endfor %}
+  {% if g.public_slug %}
+  ⚠️ <a href="{{ url_for('artist', artist_id=g.artist_id) }}"><b>{{ g.public_slug }}</b></a>
+  <span class="muted">#{{ ids }}</span>
+  <ul style="margin:.4rem 0">
+  {% for item in g['items'] %}
+    <li>{% for k, v in item.payload.reasons.items() %}<span class="chip badge-nsfw">{{ k }}: {{ v }}</span> {% endfor %}</li>
+  {% endfor %}
+  </ul>
   <p class="muted">Inspect the artist page; detach anything wrong there.</p>
-  {% else %}
+  {% else %}{% for item in g['items'] %}
   <b>#{{ item.id }} · {{ item.payload.type or 'flag' }}</b> ⚠️
   <pre>{{ item.payload }}</pre>
-  {% endif %}
+  {% endfor %}{% endif %}
   <p class="muted">Acknowledge = reviewed, looks fine as-is; Dismiss = not
-  worth tracking. Neither performs any structural change.</p>
-  {{ decide_buttons(item, ok='Acknowledge', no='Dismiss') }}
+  worth tracking. Neither performs any structural change. Deciding this card
+  resolves all {{ g['items']|length }} flag{{ '' if g['items']|length == 1 else 's' }}.</p>
+  <label class="muted"><input type="checkbox" name="items" value="{{ ids }}" form="bulk"> select</label>
+  <form class="inline" method="post" action="{{ url_for('bulk_decide') }}">{{ csrf() }}
+    <input type="hidden" name="items" value="{{ ids }}">
+    <button class="ok" name="decision" value="approve">Acknowledge</button></form>
+  <form class="inline" method="post" action="{{ url_for('bulk_decide') }}">{{ csrf() }}
+    <input type="hidden" name="items" value="{{ ids }}">
+    <button class="no" name="decision" value="reject">Dismiss</button></form>
 </div>
 {% endfor %}
 
@@ -1005,6 +1034,9 @@ def artist(artist_id):
                    a.platform_stats, a.last_post_at, a.contact_email, a.commission_status,
                    a.commission_confidence, a.commission_detail, a.commission_checked_at,
                    aa.confidence, p.slug as platform, p.display_only,
+                   exists (select 1 from content_flags cf
+                           where cf.account_id = a.id and cf.active
+                             and cf.flag = 'nsfw') as nsfw,
                    (select s.bio_text from account_snapshots s
                     where s.account_id = a.id order by s.captured_at desc limit 1) as bio
             from artist_accounts aa
@@ -1269,9 +1301,27 @@ def review():
         # section with acknowledge/dismiss wording, never an "Approve" that
         # reads like it merges something.
         anomaly_items = [i for i in items if i["kind"] == "other"]
+        # One artist often trips several anomaly rules (hub fanout + a couple
+        # of cross-artist-ref accounts) — show ONE card per artist with every
+        # flag inside; its buttons decide all grouped items at once.
+        by_artist: dict = {}
+        anomaly_groups = []
+        for item in anomaly_items:
+            payload = item["payload"] or {}
+            aid = payload.get("artist_id") if payload.get("type") == "anomaly" else None
+            if aid is None:  # giant components etc. stay individual cards
+                anomaly_groups.append({"public_slug": None, "items": [item]})
+                continue
+            if aid not in by_artist:
+                by_artist[aid] = {"artist_id": aid,
+                                  "public_slug": payload.get("public_slug"),
+                                  "items": []}
+                anomaly_groups.append(by_artist[aid])
+            by_artist[aid]["items"].append(item)
         attach_items = [i for i in items if i["kind"] not in ("cluster_merge", "other")]
         return render_template("review.html", merge_items=merge_items,
-                               anomaly_items=anomaly_items,
+                               anomaly_groups=anomaly_groups,
+                               anomaly_count=len(anomaly_items),
                                attach_items=attach_items[:60],
                                attach_total=len(attach_items),
                                pending=len(items), demoted_count=demoted_count(conn))
@@ -1346,8 +1396,10 @@ def bulk_decide():
     decision = request.form.get("decision")
     assert decision in ("approve", "reject")
     with db.connect() as conn:
-        for item_id in request.form.getlist("items"):
-            _decide_one(conn, int(item_id), decision)
+        # Grouped anomaly cards submit their item ids comma-joined in one value.
+        for field in request.form.getlist("items"):
+            for item_id in field.split(","):
+                _decide_one(conn, int(item_id), decision)
         conn.commit()
     return redirect(url_for("review"))
 
