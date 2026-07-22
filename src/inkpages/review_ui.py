@@ -786,7 +786,7 @@ COMMS_SQL = {
 COMMS_LABELS = [("skeb", "skeb open"), ("pixiv", "pixiv open"), ("bio", "bio-attested")]
 
 # Sources an artist can be discovered through (directory_entries.sources).
-SOURCE_OPTIONS = ["skeb", "bluesky", "twitter", "pixiv", "patreon"]
+SOURCE_OPTIONS = ["skeb", "bluesky", "twitter", "pixiv", "patreon", "artstation"]
 
 # Avatar CDNs that 403 without a Referer — proxied through /img (see img_proxy).
 PROXY_HOSTS = ("i.pximg.net", "s.pximg.net")

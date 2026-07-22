@@ -21,7 +21,7 @@ import re
 from collections import Counter, defaultdict
 
 from . import db, policy
-from .extract import looks_like_artist
+from .extract import looks_like_artist, looks_like_project
 
 # bio_mention same-person claims (e.g. "nsfw alt: @x") count as strong; the
 # claim filter in load_state keeps 'related' mentions out entirely.
@@ -379,6 +379,39 @@ def main() -> None:
                 anchor = max((accounts[m] for m in members),
                              key=lambda a: a["followers_count"] or 0)
                 if db.is_suppressed(conn, anchor["id"]):
+                    continue
+                # Follow-on-only components (no roster source vouched for any
+                # member) need artist evidence before becoming an artist:
+                # zines/big bangs/anthologies publish reciprocal twitter↔carrd
+                # links exactly like a person and used to sail through here.
+                # Project-flavored or evidence-free components go to
+                # singleton_gate review (approve creates the anchor's artist;
+                # the rest of the component attaches next run).
+                component_text = "\n".join(
+                    "\n".join(filter(None, [accounts[m]["latest_bio"],
+                                            accounts[m]["display_name"],
+                                            accounts[m]["handle"]]))
+                    for m in members if m in accounts)
+                follow_on_only = not any(
+                    accounts[m]["discovered_via"] in policy.ROSTER_SOURCES
+                    or accounts[m]["discovered_via"] == "manual"
+                    for m in members if m in accounts)
+                if follow_on_only and (looks_like_project(component_text)
+                                       or not looks_like_artist(component_text)):
+                    if not review_exists(conn, "singleton_gate", "account_id",
+                                         anchor["id"]):
+                        add_review_item(conn, "singleton_gate", {
+                            "account_id": anchor["id"],
+                            "handle": anchor["handle"],
+                            "platform": anchor["platform_slug"],
+                            "followers": anchor["followers_count"],
+                            "discovered_via": anchor["discovered_via"],
+                            "component_account_ids": sorted(members),
+                            "reason": ("project_like"
+                                       if looks_like_project(component_text)
+                                       else "no_artist_evidence"),
+                        }, stats)
+                    stats["components_gated"] += 1
                     continue
                 artist_id = create_artist(conn, anchor)
                 membership[anchor["id"]] = artist_id

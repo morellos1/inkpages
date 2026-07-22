@@ -171,6 +171,20 @@ def looks_like_artist(text: str | None) -> bool:
     return bool(text and _ARTIST_HINTS.search(text))
 
 
+# Collective/project entities — zines, big bangs, anthologies, charity
+# events — publish reciprocal twitter↔carrd links exactly like a person, so
+# graph shape can't tell them apart; their self-description can. Boundaries
+# keep "magazine"/"webzine" from matching.
+_PROJECT_HINTS = re.compile(
+    r"\b(?:fan)?zines?\b|\bbig\s?bangs?\b|antholog|合同誌|アンソロ"
+    r"|\bcharity\s+(?:project|event|zine)\b|\bfan\s?events?\b"
+    r"|\bart\s+servers?\b|\bcollab\s+(?:server|group)\b", re.IGNORECASE)
+
+
+def looks_like_project(text: str | None) -> bool:
+    return bool(text and _PROJECT_HINTS.search(text))
+
+
 # --- bio @mentions: alt accounts vs merely-related accounts ---------------
 
 @dataclass(frozen=True)
