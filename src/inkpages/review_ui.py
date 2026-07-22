@@ -238,6 +238,9 @@ document.querySelectorAll('.bio').forEach(function (box) {
     {% if s.region %}<span class="stat-chip">{{ s.region }}</span>{% endif %}
     {% if s.premium %}<span class="stat-chip good">premium</span>{% endif %}
     {% if s.official %}<span class="stat-chip good">official</span>{% endif %}
+  {% elif platform == 'artstation' %}
+    {% if s.artstation_position %}<span class="stat-chip">trending #{{ s.artstation_position }}{% if s.artstation_dimension and s.artstation_dimension != 'all' %} ({{ s.artstation_dimension }}){% endif %}</span>{% endif %}
+    {% if s.pro_member %}<span class="stat-chip good">pro</span>{% endif %}
   {% elif platform == 'patreon' %}
     {% if s.paid_members %}<span class="stat-chip">{{ "{:,}".format(s.paid_members) }} paid members</span>{% endif %}
     {% if s.graphtreon_category %}<span class="stat-chip">{{ s.graphtreon_category }}</span>{% endif %}
@@ -1131,6 +1134,12 @@ SOURCE_META = {
         "Accounts listed on an artist's own Linktree / Carrd / potofu / "
         "lit.link page — treated exactly like bio links.",
         ["joins via clustering only"]),
+    "artstation_ranking": ("ArtStation trending", True, "free",
+        "Artists charting on ArtStation's community trending feed (2D first). "
+        "ArtStation bot-walls its profile pages, so these arrive with name "
+        "and portfolio only — their other accounts connect when the artist's "
+        "own bios elsewhere link back to ArtStation.",
+        ["curated by trending", "no profile fetch"]),
     "manual": ("Added by hand", False, "free",
         "An account a human attached from the artist page (pasted profile "
         "URL). Human decisions are never undone by the pipeline.",

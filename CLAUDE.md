@@ -10,7 +10,23 @@ is displayed strictly as the artist's own attestation, never our classification.
 Full brief: `~/Desktop/artist-directory-brief.md` (outside the repo). Design
 rationale: `docs/schema.md` and `docs/pipeline.md`.
 
-## Current state (2026-07-22, post Graphtreon/Patreon discovery)
+## Current state (2026-07-22, post ArtStation discovery)
+
+**ArtStation discovery is live** (`discover_artstation.py`): the community
+trending feed (`/api/v2/community/explore/projects/trending.json`,
+robots-permitted; dimension=2d first, then all) is the only open surface —
+**profile pages, users/{u}.json and project JSON are Cloudflare-bot-walled
+and we do not circumvent bot protection**, so roster rows arrive with stable
+numeric id, username, display name, avatar and trending position ONLY (no
+bios/followers/socials). Cross-links form from the other side (artists' own
+bios linking artstation.com/username). `--max-new 500` honored. First run:
+506 creators (500 new → singleton artists, 6 unified with existing bio-link
+rows), snapshots `artstation:trending` (reextract-excluded),
+`discovered_via='artstation_ranking'` (ROSTER_SOURCES + SOURCE_META).
+**Directory 3,455 → 3,956; 576 artstation accounts; spend $38.90 of $100.**
+lang_en now ~1,972 (western cohort roughly tripled since 2026-07-21).
+
+## Previous state (2026-07-22, post Graphtreon/Patreon discovery)
 
 **Patreon discovery is live** (`discover_patreon.py`, commit b01e2b1):
 `--harvest` crawls Graphtreon's public per-category top-50 lists (4 metrics ×

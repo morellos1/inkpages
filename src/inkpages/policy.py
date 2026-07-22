@@ -70,6 +70,9 @@ ROSTER_SOURCES = {
     # exactly like charting in a ranking.
     "pixiv_tag_search",
     "patreon_ranking",
+    # Charting on ArtStation's community trending feed — roster-grade like
+    # a pixiv ranking; profiles are bot-walled so these arrive with no edges.
+    "artstation_ranking",
     "convention_list",
     "platform_roster",  # Cara / ArtStation / DeviantArt / XFolio enumerations
 }
