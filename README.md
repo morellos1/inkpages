@@ -24,7 +24,8 @@ provenance.
 ## Layout
 
 - [migrations/](migrations/) — plain-SQL schema (Postgres 16)
-- [src/inkpages/](src/inkpages/) — pipeline workers (Bluesky discovery so far)
+- [src/inkpages/](src/inkpages/) — pipeline workers (discovery: Bluesky, Skeb,
+  Pixiv, Twitter, Graphtreon/Patreon; crawling, clustering, review UI)
 - [docs/schema.md](docs/schema.md) — ERD + design-tradeoff walkthrough
 - [docs/pipeline.md](docs/pipeline.md) — the pipeline plan and budget
 - [scripts/migrate.py](scripts/migrate.py) — minimal migration runner
@@ -100,6 +101,23 @@ Hydrates every referenced pixiv account via the public user ajax endpoint
 acceptance) and discovers new artists from the SFW illust rankings
 (weekly/monthly/original), rank kept as an auxiliary signal.
 
+### Patreon discovery via Graphtreon (Western column, free)
+
+```sh
+uv run python -m inkpages.discover_patreon --harvest --max-new 500
+uv run python -m inkpages.discover_patreon --hydrate-known --limit 400
+```
+
+`--harvest` crawls Graphtreon's public per-category top-50 lists (paid
+members / earnings / growth / free members × drawing & painting, comics,
+animation — SFW and Patreon's self-declared adult categories, which carry an
+18+ platform flag). `--max-new` caps how many not-yet-known creators are
+added, best chart position first; without it a full harvest lands ~850
+distinct creators. `--hydrate-known` then fetches each creator's own
+patreon.com page (public page HTML only — Patreon's `/api/` is disallowed by
+robots.txt and never touched) and extracts their registered social links and
+about text into ordinary provenance-carrying edges.
+
 ### Link crawling & Twitter
 
 ```sh
@@ -116,13 +134,17 @@ Paid workers check the `api_usage` ledger against `X_SPEND_CAP_CENTS`
 exist after a crawl:
 
 ```sh
-uv run python -m inkpages.pipeline   # crawl_links, then cluster
+uv run python -m inkpages.pipeline   # hydrate-known passes, crawl_links, check_links, cluster, classify_region
 ```
 
 ## Status
 
-Running end to end: Bluesky + Twitter discovery, shortener/hub crawling,
-extraction (no-AI + NSFW signals, alt-vs-related mentions, activity),
-clustering with review queue, and the local review UI. Next: full-scale
-#PortfolioDay harvest, Eastern column (Skeb/Pixiv), region classification,
-ranking.
+Running end to end: discovery on Bluesky, Skeb, Pixiv (rankings + tag
+search), Twitter (paid, budget-guarded), and Graphtreon/Patreon;
+shortener/hub crawling (Linktree, Carrd, potofu, lit.link, profcard, twpf,
+tsunagu); extraction (no-AI + NSFW signals, alt-vs-related mentions,
+commissions, contact emails); clustering with guards + review queue; region
+and language classification; and the local review UI with directory browse,
+faceted filters, and plain-language /sources + /rules explainer pages.
+Next: Bluesky list/starter-pack expansion, stratified ranking runs, the
+public site.

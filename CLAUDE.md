@@ -32,6 +32,12 @@ nsfw-flagged; review queue 26 → 36** (1 cluster_merge + 9 anomalies from the
 new cohort). Paid X spend: $38.76 of $100. The EN cohort roughly doubled
 (lang_en ~1,477) — language filters matter more now.
 
+Note: the user asked for "top 500" but the first harvest had no cap, so all
+857 distinct creators across the 24 fixed top-50 lists landed. `--max-new N`
+now exists (caps NOT-yet-known creators per harvest, best chart position
+first; already-known creators always refresh) — use it when the user gives a
+number.
+
 ## Previous state (2026-07-21, post bugfix/optimization pass)
 
 Pre-discovery bugfix pass (commit 6c4ecb2): **t.co resolution was silently

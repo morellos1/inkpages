@@ -77,9 +77,11 @@ def parse_ranking(page_html: str):
                htmllib.unescape(_TAGS.sub("", blurb.group(1))) if blurb else None)
 
 
-def harvest(conn, client, platforms, stats) -> None:
+def harvest(conn, client, platforms, stats, max_new: int = 0) -> None:
     """Crawl every metric x category list; first sighting wins the details,
-    an adult-category sighting anywhere wins the adult flag."""
+    an adult-category sighting anywhere wins the adult flag. max_new caps how
+    many creators NOT already in the db are added (best chart position first);
+    already-known creators always refresh regardless."""
     creators: dict[str, dict] = {}
     for metric in METRICS:
         for category in CATEGORIES:
@@ -101,7 +103,26 @@ def harvest(conn, client, platforms, stats) -> None:
     print(f"graphtreon: {len(creators)} distinct creators "
           f"across {stats['lists_fetched']} lists")
 
-    for row in creators.values():
+    rows = sorted(creators.values(), key=lambda r: (r["rank"] or 999))
+    if max_new:
+        with conn.cursor() as cur:
+            cur.execute(
+                """select handle::text from accounts where platform_id = %s""",
+                (platforms["patreon"],))
+            known = {h for (h,) in cur.fetchall()}
+        new_seen = 0
+        kept = []
+        for row in rows:
+            if row["vanity"] in known:
+                kept.append(row)
+            elif new_seen < max_new:
+                kept.append(row)
+                new_seen += 1
+            else:
+                stats["skipped_over_max_new"] += 1
+        rows = kept
+
+    for row in rows:
         account_id = db.get_or_create_account(
             conn, platforms["patreon"],
             native_id=row["campaign"],
@@ -302,6 +323,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--harvest", action="store_true",
                         help="crawl Graphtreon's art-category top lists")
+    parser.add_argument("--max-new", type=int, default=0,
+                        help="cap creators not already in the db added per "
+                             "harvest, best chart position first (0 = no cap)")
     parser.add_argument("--hydrate-known", action="store_true",
                         help="fetch patreon pages for accounts never hydrated")
     parser.add_argument("--limit", type=int, default=400,
@@ -315,7 +339,7 @@ def main() -> None:
             db.connect() as conn:
         platforms = db.platform_ids(conn)
         if args.harvest:
-            harvest(conn, client, platforms, stats)
+            harvest(conn, client, platforms, stats, max_new=args.max_new)
         if args.hydrate_known:
             hydrate_known(conn, client, platforms, args.limit, stats)
     print("done:", dict(stats))
