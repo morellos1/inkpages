@@ -90,17 +90,18 @@ CSRF/perf, cleanup). Key new behavior:
 
 ## Previous state (2026-07-21 morning)
 
-- **2,609 listed artists** (post-audit healing merged duplicates; +89 hidden
-  by the sub-50-follower cull; +~13 from the 2026-07-21 shortener-recovery
-  and hub-crawl passes), ~13.9k accounts, 1,047 flagged 18+, 118
-  no-AI badged. Languages: ~1,854 ja /
-  ~693 en / ~101 zh / ~24 ko. Paid X spend: $34.12 of $100.
+- **2,601 listed artists** (post-audit healing merged duplicates; +89 hidden
+  by the sub-50-follower cull; net down slightly from the 2026-07-21
+  shortener-recovery, hub-crawl, and service-account cleanup passes),
+  ~13.9k accounts, 1,046 flagged 18+, 118
+  no-AI badged. Languages: ~1,843 ja /
+  ~635 en / ~100 zh / ~23 ko. Paid X spend: $34.12 of $100.
 - **Discovery live**: Bluesky (free), Skeb (free — Algolia ranking +
   `--hydrate-known`), Pixiv (free — SFW rankings + **tag-search harvest**:
   `--tag オリジナル --tag-mode r18 --tag-order popular_d --new-only --max-new N`;
   the `PIXIV_SESSION` is **premium** so popularity sort works; `ai_type=1`
   excludes author-flagged AI works — discovery filter only, never an
-  attestation), Twitter (paid — ~$31.17 of a $100 budget spent).
+  attestation), Twitter (paid — $34.12 of a $100 budget spent).
 - The old pixiv R18-ranking throttle (~99 artists) is moot: R18 tag search
   reaches millions of works. 2026-07-21 harvest: +250 SFW / +200 R18 artists
   via オリジナル + 原創.
@@ -111,18 +112,19 @@ CSRF/perf, cleanup). Key new behavior:
 - **Not built yet**: stratified ranking runs, Bluesky list/starter-pack
   expansion, Graphtreon/Patreon, ArtStation/Cara/DeviantArt/Tumblr, the public
   site.
-- Review queue: **44 pending** — 10 `cluster_merge` + 34 anomalies/other
-  (post-hub-crawl counts incl. the new cross-artist-refs anomalies; 19
-  artists additionally sit in `needs_review`). Twitter hydration backlog is
-  **clear** (user standing rule: auto-run when estimated spend < $10).
-  Artist-level cyclical references now auto-merge (see clustering model), which
-  drained 10 of the old 21 merge conflicts. **99 more unresolved same-person
-  claims across 74 artists** are now visible+attachable on artist pages (see
-  Review UI) — mostly `no X/bsky` profiles whose linked X already belongs to
-  another artist; clear them by browsing, not just via the queue.
+- Review queue: **26 pending** — 5 `cluster_merge` + 21 anomalies/other
+  (post-hub-crawl + re-hydration counts incl. the cross-artist-refs
+  anomalies; 19 artists additionally sit in `needs_review`). Twitter
+  hydration backlog is **clear** (user standing rule: auto-run when
+  estimated spend < $10). Artist-level cyclical references auto-merge (see
+  clustering model). **193 unresolved same-person claims across 132
+  artists** are visible+attachable on artist pages (see Review UI) — mostly
+  `no X/bsky` profiles whose linked X already belongs to another artist, or
+  pixiv↔twitter links a guard held back; clear them by browsing, not just
+  via the queue.
 - **Next up (in priority order):**
-  1. **Work the 74 artists with unresolved same-person claims** (attach/merge
-     from artist pages) + the 11 `cluster_merge` + 22 anomaly reviews.
+  1. **Work the 132 artists with unresolved same-person claims** (attach/merge
+     from artist pages) + the 5 `cluster_merge` + 21 anomaly reviews.
   2. **Bluesky list/starter-pack expansion** (free discovery breadth).
   3. Consider deeper tag-search harvests (more pages, more tags, e.g.
      `オリジナル10000users入り` as a curated tier) — each round is ~free.
