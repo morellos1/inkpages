@@ -79,4 +79,7 @@ ROSTER_SOURCES = {
     "vgen_marketplace",
     "convention_list",
     "platform_roster",  # Cara / ArtStation / DeviantArt / XFolio enumerations
+    # One-click tags from the x-tag browser extension: a human looked at the
+    # profile and said "artist" — the strongest roster evidence there is.
+    "manual_tag",
 }

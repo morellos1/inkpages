@@ -16,7 +16,7 @@ from .twitter import USER_READ_CENTS, XApi, ensure_budget, process_user
 # the artist behind the hub is the voucher, not the hub page.
 _BACKLOG_SQL = """
 with targets as (
-  select a.id, a.handle::text as handle
+  select a.id, a.handle::text as handle, a.discovered_via
   from accounts a
   where a.platform_id = %(tw)s and a.native_id is null and a.last_hydrated is null
     and a.status = 'unknown' and a.discovered_via <> 'bio_mention'
@@ -35,7 +35,7 @@ hub_up as (
   join identity_edges e2 on e2.target_account_id = h.id and e2.status = 'present'
 ),
 refs as (select * from direct union select * from hub_up)
-select t.id, t.handle, r.ref_id, ra.project as ref_project,
+select t.id, t.handle, t.discovered_via, r.ref_id, ra.project as ref_project,
        ra.discovered_via as ref_via,
        exists (select 1 from artist_accounts aa
                join artists ar on ar.id = aa.artist_id
@@ -69,15 +69,19 @@ def gated_handle_backlog(conn, twitter_platform_id: int,
         rows = cur.fetchall()
     by_target: dict[int, dict] = {}
     refs: defaultdict[int, list] = defaultdict(list)
-    for target_id, handle, ref_id, ref_project, ref_via, ref_is_member, ref_text in rows:
-        by_target[target_id] = {"handle": handle}
+    for target_id, handle, via, ref_id, ref_project, ref_via, ref_is_member, ref_text in rows:
+        by_target[target_id] = {"handle": handle, "via": via}
         if ref_id is not None and not ref_project:
             refs[target_id].append((ref_via, ref_is_member, ref_text))
 
     passing: list[str] = []
     skipped = 0
     for target_id, target in by_target.items():
-        vouched = looks_like_artist(target["handle"])
+        # Roster-discovered targets vouch for themselves: a human tag or a
+        # curated roster IS the artist evidence (they arrive with no edges,
+        # so the referrer gate below would otherwise starve them forever).
+        vouched = (target["via"] in policy.ROSTER_SOURCES
+                   or looks_like_artist(target["handle"]))
         for ref_via, ref_is_member, ref_text in refs[target_id]:
             if vouched:
                 break

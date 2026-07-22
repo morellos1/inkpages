@@ -1,0 +1,108 @@
+// The one-click tag/untag button, shared by the hover card and the profile
+// header. Self-syncing: renders from the runtime cache and re-renders on
+// every xtag update event.
+import type { XtagInfo } from "../core/x";
+import { getState, tagHandles, untagHandles, XTAG_UPDATED_EVENT } from "./runtime";
+
+const BTN_CLASS = "xtag-action-btn";
+
+interface ButtonFace {
+  label: string;
+  title: string;
+  className: string;
+}
+
+function faceFor(info: XtagInfo): ButtonFace {
+  switch (info.state) {
+    case "listed":
+      return {
+        label: "inked ✓",
+        title: `In the inkpages directory${info.slug ? ` as /${info.slug}` : ""} — click to remove`,
+        className: "xtag-btn-listed",
+      };
+    case "queued":
+      return {
+        label: "queued ✓",
+        title: "Tagged — awaiting hydration; click to un-queue",
+        className: "xtag-btn-queued",
+      };
+    case "removed":
+      return {
+        label: "re-add",
+        title: `Removed from inkpages (${info.detail ?? "?"}) — click to re-add`,
+        className: "xtag-btn-removed",
+      };
+    case "tracked":
+      return {
+        label: "+ ink",
+        title: `Known to inkpages (${info.detail ?? "tracked"}) but not listed — click to tag as artist`,
+        className: "xtag-btn-untracked",
+      };
+    default:
+      return {
+        label: "+ ink",
+        title: "Tag this profile as an artist for inkpages",
+        className: "xtag-btn-untracked",
+      };
+  }
+}
+
+export function createActionButton(handle: string): HTMLButtonElement {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = BTN_CLASS;
+  button.dataset.xtagHandle = handle;
+  button.textContent = "…";
+
+  let current: XtagInfo = { state: "untracked" };
+
+  const render = (info: XtagInfo): void => {
+    current = info;
+    const face = faceFor(info);
+    button.textContent = face.label;
+    button.title = face.title;
+    button.className = `${BTN_CLASS} ${face.className}`;
+  };
+
+  const sync = (): void => {
+    void getState(handle).then((info) => {
+      if (button.isConnected) render(info);
+    });
+  };
+
+  button.addEventListener("click", async (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (button.disabled) return;
+    button.disabled = true;
+    try {
+      if (current.state === "listed") {
+        const name = current.slug ? `@${handle} (artist /${current.slug})` : `@${handle}`;
+        if (!window.confirm(
+          `Remove ${name} from inkpages?\n\nThis suppresses the artist — it `
+          + `disappears from the directory and re-discovery can never re-add it. `
+          + `Reversible from the review UI's Removed page.`,
+        )) {
+          return;
+        }
+        await untagHandles([handle]);
+      } else if (current.state === "queued") {
+        await untagHandles([handle]);
+      } else {
+        const result = await tagHandles([handle]);
+        const note = result[handle]?.note;
+        if (note) window.alert(`inkpages: ${note}`);
+      }
+    } catch (error) {
+      console.error("[xtag] action failed", error);
+      window.alert(`inkpages x-tag: ${error instanceof Error ? error.message : error}`);
+    } finally {
+      button.disabled = false;
+      sync();
+    }
+  });
+
+  window.addEventListener(XTAG_UPDATED_EVENT, sync);
+  sync();
+  return button;
+}

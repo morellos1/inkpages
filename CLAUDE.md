@@ -80,6 +80,31 @@ UI polish -> TikTok -> vgen tier-1/2 cull. Key durable facts:
   imported** — a stale process mixing old modules with new imports was
   the entire "merge/approve 500" mystery (ImportError on lazy import).
 
+**x-tag extension live (2026-07-22 evening)**: `xtag/` is a Chrome MV3
+extension (TS + esbuild, DOM logic adapted from the user's wongtp/better-x)
+for one-click tagging of artist profiles while browsing X — hover-card +
+profile-header buttons, state badges next to names (green INK = listed,
+amber INK… = queued, gray ✕ = removed), and checkbox + select-all + submit
+bulk bars on follower/following lists (selection keyed by handle, survives
+X's row virtualization). Server side: `/api/x/{status,tag,untag,queue,flush}`
+in review_ui, authed by `X-Inkpages-Token` header = `INKPAGES_TAG_TOKEN` in
+.env (auto-generated at first server start, printed at startup; paste into
+the extension popup once — form CSRF stays for HTML routes). Tagging is FREE:
+it upserts a handle-only twitter account `discovered_via='manual_tag'` —
+which is a ROSTER_SOURCE, self-vouching through the hydration gate
+(`gated_handle_backlog` now vouches targets by their own roster
+discovered_via), exempt from the sub-50 cull, and surfaces as directory
+source facet `tagged` (migration 0033). Hydration is EXPLICIT: the popup's
+"Hydrate now (~$X)" button posts /flush (users/by, ledgered, cap-guarded,
+per-click approval) with optional background pipeline run so singletons
+actually list. Untag semantics: queued+historyless row → deleted; known
+unlisted → status hidden; **listed artist → artist-scoped suppression**
+(reason other/'x-tag removal', reversible from /removed; tag on a suppressed
+handle never lifts it — the extension says to lift in the review UI).
+Tag on existing rows adopts weak vias (bio_link/bio_mention/link_hub/
+hydration → manual_tag) and lifts hidden/deleted; roster vias stay. Build:
+`cd xtag && npm install && npm run build`, load unpacked `xtag/extension/`.
+
 **Next up (in priority order — user directive 2026-07-22 evening):**
 1. **Misskey cross-hydration** (598 held accounts, open per-instance API,
    free edges from profile fields[]).

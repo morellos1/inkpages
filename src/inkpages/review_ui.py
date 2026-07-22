@@ -6,8 +6,12 @@ Local admin tooling — binds to 127.0.0.1 only.
 """
 import json
 import os
+import re
 import secrets
+import subprocess
+import sys
 import time
+from collections import Counter
 
 from flask import Flask, abort, redirect, render_template, request, url_for
 from jinja2 import DictLoader
@@ -825,7 +829,7 @@ COMMS_LABELS = [("skeb", "skeb open"), ("pixiv", "pixiv open"), ("bio", "bio-att
 
 # Sources an artist can be discovered through (directory_entries.sources).
 SOURCE_OPTIONS = ["skeb", "bluesky", "twitter", "pixiv", "patreon", "artstation",
-                  "deviantart", "vgen"]
+                  "deviantart", "vgen", "tagged"]
 
 # Avatar CDNs that 403 without a Referer — proxied through /img (see img_proxy).
 PROXY_HOSTS = ("i.pximg.net", "s.pximg.net")
@@ -916,8 +920,35 @@ def cached(key, fn):
     return val
 
 
+# Shared secret for the x-tag extension API (form CSRF tokens rotate per
+# process, which a browser extension's service worker can't track). Sourced
+# from .env INKPAGES_TAG_TOKEN; generated + appended on first use so it
+# survives restarts. Paste it into the extension popup once.
+_TAG_TOKEN: str | None = None
+
+
+def tag_token() -> str:
+    global _TAG_TOKEN
+    if _TAG_TOKEN is None:
+        tok = db.env_var("INKPAGES_TAG_TOKEN")
+        if not tok:
+            tok = secrets.token_hex(16)
+            with open(db.ROOT / ".env", "a", encoding="utf-8") as fh:
+                fh.write(f"\nINKPAGES_TAG_TOKEN={tok}\n")
+            print(f"x-tag: generated INKPAGES_TAG_TOKEN (saved to .env)")
+        _TAG_TOKEN = tok
+    return _TAG_TOKEN
+
+
 @app.before_request
 def _csrf_protect():
+    if request.path.startswith("/api/x/"):
+        if not secrets.compare_digest(
+                request.headers.get("X-Inkpages-Token", ""), tag_token()):
+            abort(403)
+        if request.method == "POST":
+            _CACHE.clear()
+        return
     if request.method == "POST":
         if not secrets.compare_digest(request.form.get("_csrf", ""), _CSRF_TOKEN):
             abort(403)
@@ -1195,6 +1226,12 @@ SOURCE_META = {
         "An account a human attached from the artist page (pasted profile "
         "URL). Human decisions are never undone by the pipeline.",
         ["human decision"]),
+    "manual_tag": ("Tagged on X (browser extension)", True, "paid",
+        "Artists tagged with one click while browsing X — the x-tag "
+        "extension queues them here, and a paid hydration fetches their "
+        "profile. A human looked at the work first, so these are exempt "
+        "from the low-follower cull.",
+        ["human decision", "curated roster", "cull-exempt"]),
     "bio_mention": ("@-mentioned in a bio", False, "free",
         "Someone @-mentioned this account. Mostly friends and clients, so it "
         "only counts when the artist explicitly marks it as their own alt "
@@ -1234,6 +1271,11 @@ SOURCE_DERIVATION = {
         "traditional / fanart + search-term variants), 60 items/page, feeds "
         "paginate ~6 pages; distinct authors in first-appearance order. "
         "Feeds rotate daily — reruns accumulate.",
+    "manual_tag": "One-click tags from the x-tag browser extension while "
+        "browsing X (profile header, hover card, or checkbox-selected "
+        "follower/following rows). Tags queue as handle-only accounts; the "
+        "extension popup's Hydrate button runs the paid users/by fetch and "
+        "an optional pipeline pass lists them.",
     "vgen_marketplace": "All ~1,044 category/subject/style listing pages "
         "from VGen's sitemap, each contributing its top-20 relevance-ranked "
         "services; distinct artists then rank by best client review count "
@@ -1862,7 +1904,245 @@ def bulk_decide():
     return redirect(url_for("review"))
 
 
+# ---------------------------------------------------------------------------
+# x-tag extension API (see xtag/ in the repo root). All endpoints require the
+# X-Inkpages-Token header (checked in _csrf_protect). One-click tags create
+# handle-only twitter accounts with discovered_via='manual_tag' — a roster
+# source, so after paid hydration + a cluster run they list as singleton
+# artists. Tagging never spends: hydration happens on the explicit /flush.
+# ---------------------------------------------------------------------------
+
+_X_HANDLE_RE = re.compile(r"^[a-z0-9_]{1,15}$")
+_STATE_RANK = {"listed": 4, "queued": 3, "tracked": 2, "removed": 1}
+
+
+def _clean_handles(payload) -> list[str]:
+    raw = (payload or {}).get("handles") or []
+    seen, out = set(), []
+    for h in raw[:500]:
+        h = str(h).strip().lstrip("@").lower()
+        if _X_HANDLE_RE.match(h) and h not in seen:
+            seen.add(h)
+            out.append(h)
+    return out
+
+
+def _x_states(conn, handles: list[str]) -> dict[str, dict]:
+    """Directory state per handle: untracked | queued | tracked | listed |
+    removed. A handle can match several rows (native-id + handle-only dupes);
+    the strongest state wins."""
+    if not handles:
+        return {}
+    rows = q(conn, """
+        select lower(a.handle::text) as h, a.id as account_id, a.status,
+               a.discovered_via, a.project,
+               a.last_hydrated is not null as hydrated,
+               ar.id as artist_id, ar.public_slug, ar.status as artist_status,
+               exists (select 1 from directory_entries de
+                       where de.artist_id = ar.id) as listed,
+               exists (select 1 from suppressions s where s.lifted_at is null
+                       and (s.account_id = a.id or s.artist_id = ar.id)) as suppressed
+        from accounts a
+        join platforms p on p.id = a.platform_id and p.slug = 'twitter'
+        left join artist_accounts aa on aa.account_id = a.id and aa.removed_at is null
+        left join artists ar on ar.id = aa.artist_id and ar.merged_into is null
+        where lower(a.handle::text) = any(%(hs)s)""", {"hs": handles})
+    out: dict[str, dict] = {}
+    for r in rows:
+        if r["suppressed"]:
+            state, detail = "removed", "suppressed"
+        elif r["status"] == "hidden":
+            state, detail = "removed", "hidden (culled)"
+        elif r["listed"]:
+            state, detail = "listed", None
+        elif r["artist_id"]:
+            state, detail = "tracked", f"artist {r['artist_status']}"
+        elif r["status"] == "deleted":
+            state, detail = "removed", "deleted on X"
+        elif r["discovered_via"] == "manual_tag" and not r["hydrated"]:
+            state, detail = "queued", None
+        else:
+            state, detail = "tracked", ("project account" if r["project"]
+                                        else r["discovered_via"])
+        cand = {"state": state, "detail": detail,
+                "artist_id": r["artist_id"], "slug": r["public_slug"]}
+        prev = out.get(r["h"])
+        if prev is None or _STATE_RANK[state] > _STATE_RANK[prev["state"]]:
+            out[r["h"]] = cand
+    for h in handles:
+        out.setdefault(h, {"state": "untracked", "detail": None,
+                           "artist_id": None, "slug": None})
+    return out
+
+
+@app.route("/api/x/status", methods=["POST"])
+def api_x_status():
+    handles = _clean_handles(request.get_json(silent=True))
+    with db.connect() as conn:
+        return {"accounts": _x_states(conn, handles)}
+
+
+@app.route("/api/x/tag", methods=["POST"])
+def api_x_tag():
+    payload = request.get_json(silent=True) or {}
+    handles = _clean_handles(payload)
+    referrer = str(payload.get("referrer") or "")[:300] or None
+    done: dict[str, dict] = {}
+    with db.connect() as conn:
+        states = _x_states(conn, handles)
+        with conn.cursor() as cur:
+            for h in handles:
+                info = states[h]
+                if info["state"] in ("listed", "queued"):
+                    done[h] = info  # already in — idempotent
+                    continue
+                if info["state"] == "removed" and info["detail"] == "suppressed":
+                    # Suppressions persist by design (opt-out rule); lifting
+                    # them stays a deliberate review-UI action.
+                    done[h] = {**info, "note": "suppressed — lift in review UI"}
+                    continue
+                account_id = db.get_or_create_account(
+                    conn, db.platform_ids(conn)["twitter"], handle=h,
+                    profile_url=f"https://x.com/{h}",
+                    discovered_via="manual_tag",
+                    discovery_details={"source": "x-tag", "referrer": referrer})
+                # Adopt pre-existing rows as human tags: promote incidental
+                # discovery to the roster source, and lift hidden/deleted
+                # states (a tag IS the explicit admin action a cull demands).
+                # Roster/harvest discovered_via values are left alone.
+                cur.execute(
+                    """update accounts
+                       set discovered_via = case
+                             when discovered_via in ('bio_link', 'bio_mention',
+                                                     'link_hub', 'hydration')
+                             then 'manual_tag' else discovered_via end,
+                           status = case
+                             when status in ('hidden', 'deleted') then
+                               case when last_hydrated is null
+                                    then 'unknown' else 'active' end
+                             else status end,
+                           discovery_details = coalesce(discovery_details, '{}'::jsonb)
+                               || jsonb_build_object('x_tagged_at', now()::text)
+                       where id = %s""", (account_id,))
+        conn.commit()
+        pending = [h for h in handles if h not in done]
+        done.update(_x_states(conn, pending))
+    return {"accounts": done}
+
+
+@app.route("/api/x/untag", methods=["POST"])
+def api_x_untag():
+    handles = _clean_handles(request.get_json(silent=True))
+    with db.connect() as conn:
+        states = _x_states(conn, handles)
+        with conn.cursor() as cur:
+            for h in handles:
+                info = states[h]
+                if info["state"] == "listed":
+                    # Removing a listed profile = suppressing the artist
+                    # (persists against re-discovery; reversible from the
+                    # review UI's Removed page).
+                    cur.execute(
+                        """insert into suppressions (artist_id, reason, note, requested_by)
+                           values (%s, 'other', 'x-tag removal', 'admin:x-tag')""",
+                        (info["artist_id"],))
+                    cur.execute(
+                        """insert into artist_events (artist_id, event, actor, details)
+                           values (%s, 'suppressed', 'admin:x-tag', %s)""",
+                        (info["artist_id"],
+                         json.dumps({"reason": "x-tag removal", "handle": h})))
+                elif info["state"] in ("queued", "tracked"):
+                    # A tag-only row with no history vanishes outright;
+                    # anything with snapshots/edges/memberships hides instead
+                    # (data kept, directory-invisible).
+                    cur.execute(
+                        """delete from accounts a using platforms p
+                           where p.id = a.platform_id and p.slug = 'twitter'
+                             and lower(a.handle::text) = %s
+                             and a.discovered_via = 'manual_tag'
+                             and not exists (select 1 from account_snapshots s
+                                             where s.account_id = a.id)
+                             and not exists (select 1 from identity_edges e
+                                             where e.source_account_id = a.id
+                                                or e.target_account_id = a.id)
+                             and not exists (select 1 from artist_accounts aa
+                                             where aa.account_id = a.id)""", (h,))
+                    if cur.rowcount == 0:
+                        cur.execute(
+                            """update accounts a set status = 'hidden'
+                               from platforms p
+                               where p.id = a.platform_id and p.slug = 'twitter'
+                                 and lower(a.handle::text) = %s
+                                 and a.status <> 'deleted'""", (h,))
+        conn.commit()
+        return {"accounts": _x_states(conn, handles)}
+
+
+_X_QUEUE_SQL = """
+    select a.handle::text as handle from accounts a
+    join platforms p on p.id = a.platform_id and p.slug = 'twitter'
+    where a.discovered_via = 'manual_tag' and a.last_hydrated is null
+      and a.native_id is null and a.status = 'unknown'
+    order by a.id"""
+
+
+@app.route("/api/x/queue")
+def api_x_queue():
+    from .twitter import USER_READ_CENTS, spend_cap_cents, spent_cents
+
+    with db.connect() as conn:
+        n = len(q(conn, _X_QUEUE_SQL))
+        return {"queued": n,
+                "est_cents": int(n * USER_READ_CENTS),
+                "spent_cents": spent_cents(conn),
+                "cap_cents": spend_cap_cents()}
+
+
+@app.route("/api/x/flush", methods=["POST"])
+def api_x_flush():
+    """Hydrate the manual-tag queue NOW (paid; the popup shows the exact cost
+    on the button, so the click is the spend approval). Optionally kicks off a
+    background pipeline run so the new artists actually list."""
+    from .twitter import (USER_READ_CENTS, XApi, process_user,
+                          spend_cap_cents, spent_cents)
+
+    if not db.env_var("X_API_BEARER_TOKEN"):
+        return {"error": "X_API_BEARER_TOKEN not set on the server"}, 400
+    payload = request.get_json(silent=True) or {}
+    stats: Counter = Counter()
+    with db.connect() as conn:
+        handles = [r["handle"] for r in q(conn, _X_QUEUE_SQL)]
+        if not handles:
+            return {"hydrated": 0, "missing": 0, "cost_cents": 0,
+                    "pipeline_started": False, "message": "queue empty"}
+        planned = len(handles) * USER_READ_CENTS
+        spent, cap = spent_cents(conn), spend_cap_cents()
+        if spent + planned > cap:
+            return {"error": f"budget cap: {spent}c spent + {planned:.0f}c "
+                             f"planned exceeds {cap}c"}, 400
+        api = XApi(conn)  # ledgers each batch into api_usage as it returns
+        found, missing = api.users_by(handles, note="x-tag flush")
+        platforms = db.platform_ids(conn)
+        for user in found:
+            process_user(conn, platforms, user, "hydration", {}, stats)
+        with conn.cursor() as cur:
+            for h in missing:
+                cur.execute(
+                    """update accounts set status = 'deleted', last_hydrated = now()
+                       where platform_id = %s and handle = %s and native_id is null""",
+                    (platforms["twitter"], h))
+        conn.commit()
+    pipeline_started = bool(payload.get("run_pipeline"))
+    if pipeline_started:
+        # Free stages only (crawl → cluster → classify); output lands in the
+        # server log. The new singletons list once it finishes.
+        subprocess.Popen([sys.executable, "-m", "inkpages.pipeline"])
+    return {"hydrated": len(found), "missing": len(missing),
+            "cost_cents": int(planned), "pipeline_started": pipeline_started}
+
+
 def main():
+    print("x-tag API token:", tag_token())
     app.run(host="127.0.0.1", port=PORT, debug=False)
 
 

@@ -1,0 +1,135 @@
+/* inkpages x-tag — content styles. Buttons must set font-family explicitly
+   (they don't inherit it on X). */
+.xtag-badge,
+.xtag-action-btn,
+#xtag-list-bar {
+  font-family: "TwitterChirp", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Roboto, Helvetica, Arial, sans-serif;
+}
+
+/* --- state badge next to names ------------------------------------------ */
+.xtag-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 16px;
+  margin-left: 4px;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 700;
+  color: #fff;
+  vertical-align: middle;
+  line-height: 1;
+  flex: 0 0 auto;
+  pointer-events: none;
+  transform: translateY(1px);
+}
+
+.xtag-badge-listed { background: rgb(20, 118, 96); }
+.xtag-badge-queued { background: rgb(191, 132, 22); }
+.xtag-badge-removed { background: rgb(104, 112, 118); }
+
+/* --- tag/untag button (hover card + profile header) ---------------------- */
+.xtag-action-btn {
+  border: 1px solid rgb(83, 100, 113);
+  background: rgb(15, 20, 25);
+  color: rgb(231, 233, 234);
+  border-radius: 999px;
+  height: 30px;
+  padding: 0 12px;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.xtag-action-btn:hover { background: rgb(39, 44, 48); }
+.xtag-action-btn:disabled { opacity: 0.6; cursor: progress; }
+
+.xtag-action-btn.xtag-btn-listed {
+  background: rgb(20, 118, 96);
+  border-color: rgb(20, 118, 96);
+}
+
+.xtag-action-btn.xtag-btn-queued {
+  background: rgb(191, 132, 22);
+  border-color: rgb(191, 132, 22);
+}
+
+.xtag-action-btn.xtag-btn-removed {
+  background: transparent;
+  color: rgb(139, 152, 165);
+}
+
+.xtag-hovercard-row {
+  display: flex;
+  justify-content: flex-end;
+  padding: 8px 16px 12px;
+}
+
+.xtag-profile-action {
+  display: inline-flex;
+  align-items: center;
+  margin: 0 6px 0 0;
+  align-self: flex-start;
+}
+
+.xtag-profile-action .xtag-action-btn { height: 34px; }
+
+/* --- follower/following list bulk flow ----------------------------------- */
+.xtag-row-check {
+  position: absolute;
+  right: 12px;
+  bottom: 10px;
+  width: 18px;
+  height: 18px;
+  z-index: 5;
+  accent-color: rgb(20, 118, 96);
+  cursor: pointer;
+}
+
+#xtag-list-bar {
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-radius: 999px;
+  background: rgb(15, 20, 25);
+  border: 1px solid rgb(83, 100, 113);
+  color: rgb(231, 233, 234);
+  font-size: 13px;
+  z-index: 9999;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+}
+
+#xtag-list-bar button {
+  font: inherit;
+  font-weight: 700;
+  border: 1px solid rgb(83, 100, 113);
+  background: transparent;
+  color: inherit;
+  border-radius: 999px;
+  padding: 5px 12px;
+  cursor: pointer;
+}
+
+#xtag-list-bar button:hover { background: rgb(39, 44, 48); }
+#xtag-list-bar button:disabled { opacity: 0.5; cursor: default; }
+
+#xtag-list-bar .xtag-bar-add {
+  background: rgb(20, 118, 96);
+  border-color: rgb(20, 118, 96);
+}
+
+#xtag-list-bar .xtag-bar-remove {
+  border-color: rgb(158, 55, 55);
+  color: rgb(244, 135, 135);
+}
+
+#xtag-list-bar .xtag-bar-msg { color: rgb(139, 152, 165); }

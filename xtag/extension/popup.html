@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="dist/popup.css">
+</head>
+<body>
+  <h1>inkpages x-tag</h1>
+
+  <section id="queue-section">
+    <div class="stat"><b id="queue-count">–</b> tagged, awaiting hydration</div>
+    <div class="muted" id="budget-line"></div>
+    <label class="row">
+      <input type="checkbox" id="run-pipeline" checked>
+      run pipeline after (clusters + lists the new artists)
+    </label>
+    <button id="flush" class="primary">Hydrate now</button>
+    <div id="flush-msg" class="muted"></div>
+  </section>
+
+  <hr>
+
+  <section>
+    <label>review UI URL
+      <input type="text" id="base-url" placeholder="http://127.0.0.1:8322">
+    </label>
+    <label>API token <span class="muted">(printed at server start; in .env as INKPAGES_TAG_TOKEN)</span>
+      <input type="password" id="token" placeholder="paste token">
+    </label>
+    <button id="save">Save &amp; test</button>
+    <div id="settings-msg" class="muted"></div>
+  </section>
+
+  <script src="dist/popup.js"></script>
+</body>
+</html>

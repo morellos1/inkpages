@@ -30,7 +30,10 @@ def cull_low_followers() -> None:
                from platforms p
                where p.id = a.platform_id and p.slug in ('twitter', 'bluesky')
                  and a.status = 'active' and a.followers_count is not null
-                 and a.followers_count < %s""",
+                 and a.followers_count < %s
+                 -- human-tagged accounts (x-tag extension) are exempt: a
+                 -- person vouched for them, follower count notwithstanding
+                 and a.discovered_via <> 'manual_tag'""",
             (policy.CULL_MIN_FOLLOWERS,))
         n = cur.rowcount
         conn.commit()
