@@ -12,163 +12,87 @@ rationale: `docs/schema.md` and `docs/pipeline.md`. Untapped-source scouting
 (vgen/itaku/misskey/tumblr next; cara+mihuashi+instagram no-go, with reasons):
 `docs/source-scouting.md` (probed live 2026-07-22).
 
-## Current state (2026-07-22 close — vgen tier-1/2 cull + refill)
+## Current state (2026-07-22 end of day — three sources landed, zines purged)
 
-**Directory 5,655 artists** (lang_en 3,969 / ja 2,075). Paid X spend
-**$78.92 of $100**. Smoke green. **1,103 vgen-anchored active artists.**
+**Directory 5,655 artists** (lang_en 3,969 / ja 2,075 / zh 236), ~32k
+account rows, **1,103 vgen-anchored**. Paid X spend **$78.92 of $100**.
+Review queue ~135 pending. Migrations at **0032**. Smoke green.
 
-- **VGen is tier-1/2 only from now on** (user directive): harvest defaults
-  to the 42 `ARTIST_ROOTS` in discover_vgen.py (tiers 1-2 of
-  docs/vgen-categories.md — core illustration + vtuber/avatar/emote art);
-  `--all-categories` is the explicit override, `--max-new N` caps fresh
-  mints (known accounts always refresh). Tier-1/2 walk = 601 listings,
-  ~3,500 distinct artists visible per walk.
-- **Cull executed**: 666 artists whose vgen categories were all tier 3-5
-  demoted (`vgen_non_artist_category`, Demoted page, no admin-touched or
-  other-roster-vouched artists included). A fresh tier-1/2 walk then
-  **resurrected 103** whose 6-slot alphabetical category cap had hidden
-  real illustration listings (`vgen_tier12_resurfaced`) — walk-first
-  before culling on capped categories, always. Net cull 563.
+Today's session in order: review-UI bugfixes -> zine/project purge ->
+DeviantArt -> source scouting -> VGen -> sources-page provenance ->
+UI polish -> TikTok -> vgen tier-1/2 cull. Key durable facts:
 
-## Previous state (2026-07-22 end — tiktok, category tiers, UI polish)
+- **Project accounts are parsed out entirely** (migration 0029,
+  `accounts.project` + `flag_project_accounts` sweep every cluster run):
+  zine/bang-suffixed handles, project-titled display names, or
+  self-describing bios ("A <fandom> zine", 合同誌です). Precision-tuned —
+  contributor mentions ("creating zines", アンソロ寄稿) never match;
+  human-attached members exempt. ~2,700 flagged: excluded from union-find
+  AND flip-rescue, hidden from Connections, barred from the paid twitter
+  backlog (and worthless as vouchers), singleton_gate items auto-reject,
+  all-project artists auto-demote (text-less display-only members can't
+  vouch). **Referrer-gated twitter hydration**
+  (`hydrate_twitter.gated_handle_backlog`): paid reads need an
+  artist-flavored voucher (listed-artist member / roster-discovered /
+  art-keyword referrer, one hop through hubs); ~1,000 zine-chain handles
+  sit gated at zero cost. This fixed frontier economics — every wave since
+  converged profitably.
+- **DeviantArt live** (`discover_deviantart.py`, migration 0030): official
+  RSS backend popular feeds (overall+category+search variants, ~6 pages
+  each, rotate daily — reruns accrete; feed recorded in discovery_details).
+  About pages open (1.5s pace, 90s/abort backoff on 403). state ->
+  userId/watchers/socialLinks/bio. **DA->DA about links are `related`
+  (same_platform_mention)** — feature dumps, not identity.
+  `deviantart:rss/about` snapshots excluded from reextract (edges derive
+  from full markup; snapshot stores tagline+excerpt).
+- **VGen live and tier-1/2 only** (`discover_vgen.py`, migration 0031):
+  robots Content-Signal `use=reference` permits; ~124k of 358k sitemap
+  users are artists. No native top-N sort — harvest walks the
+  server-rendered category listing heads (top-20 relevance each), ranks
+  distinct artists by client totalReviews, mints top N. **Default walk =
+  the 42 tier-1/2 `ARTIST_ROOTS`** (601 listings, ~3.5k artists/walk;
+  docs/vgen-categories.md has all 147 roots tiered); `--all-categories`
+  overrides, `--max-new` bounds accretion. Profile `__NEXT_DATA__` ->
+  userID native_id, registered socials (profile_field), servicesStatus
+  OPEN/CLOSED -> authoritative comms (`vgen:services_status` .95), tags +
+  ratings in platform_stats (DB-only, not rendered; ratings saturated at
+  ~5.0 — reviews is the metric). vgen->vgen bio links = related mentions.
+  vgen:profile snapshots STAY in reextract. **Cull executed**: 666
+  tier-3-5-only artists demoted (`vgen_non_artist_category`), 103
+  resurrected after a fresh walk merged full categories
+  (`vgen_tier12_resurfaced`) — **walk-first before culling on capped
+  category data, always**. Listing cursors are client-API-only: scale via
+  listing heads + rotation, not depth.
+- **TikTok = display-only platform** (migration 0032, like instagram/
+  weibo): `tiktok.com/@handle` pattern, vm/vt.tiktok.com shorteners, 158
+  website rows reclassified.
+- **/sources shows exact derivation per source**: `SOURCE_DERIVATION`
+  recipe line + `SOURCE_BREAKDOWN_SQL` live chips (pixiv tags/modes,
+  graphtreon categories, bsky feeds, DA feeds, vgen listing heads). Keep
+  both dicts in sync when adding a source. `db.set_platform_stats`
+  **merges** jsonb (was replace — second writer used to wipe the first).
+- **UI**: unbroken-run wrapping scoped to `.bio`/`.wrapany` only (global
+  td wrapping broke handles mid-word); td.nowrap on dates/platform/
+  confidence/followers; td.trunc ellipsis+tooltip on names/emails/slugs;
+  main 1400px; select-all checkboxes on artist-page bulk forms; stats
+  macro renders scalars only (a raw list chip once stretched pages).
+  **Restart the review UI after committing code the running server hasn't
+  imported** — a stale process mixing old modules with new imports was
+  the entire "merge/approve 500" mystery (ImportError on lazy import).
 
-**Directory 6,199 artists** (lang_en 3,952 / ja 2,077). Paid X spend
-**$78.07 of $100**. Smoke green, migrations at 0032.
-
-- **TikTok is display-only platform #4** (migration 0032, like
-  instagram/weibo/facebook): `tiktok.com/@handle` pattern, vm/vt.tiktok.com
-  in SHORTENER_DOMAINS, 158 website rows reclassified, 158 accounts wired.
-- **docs/vgen-categories.md**: 147 sampled vgen root categories tiered 1-5
-  by digital-artist likelihood + surface counts. 143 top-1000 artists
-  surfaced ONLY in tier 5 (video/audio/writing — exclusion candidates,
-  listed by handle), 112 only in tier 4 (rigging/3D — user's call).
-  `discover_vgen --exclude-category <root>` filters future harvests.
-  **Re-walks accrete**: listing heads rotate, each harvest mints that
-  walk's top-1000 (ratings re-walk added 265 new artists) — bound future
-  runs with --top/--exclude-category or accept growth.
-- **vgen_rating captured** (harvest + hydration; ~saturated: avg 4.995,
-  min 4.6 — reviews count stays the ranking metric). Stats macro shows one
-  compact chip; tags/categories DB-only. `db.set_platform_stats` merges.
-  UI squish pass: scoped .wrapany, td.nowrap/.trunc, main 1400px.
-- vgen cohort fully hydrated (1,545 profiles incl. rotation arrivals),
-  their twitters hydrated (~$14.3 total today, all gate-vouched).
-
-## Previous state (2026-07-22 final — VGen twitter wave + sources page)
-
-**Directory 5,902 artists**, lang_en 3,716 / ja 2,041 / zh 211. Paid X
-spend **$74.75 of $100**. Twitter backlog converged (~$0.2 residual;
-1,009 gated as zine/no-evidence chains — leave them). Smoke green.
-
-- **/sources now shows exact derivation per source**: a knob-for-knob
-  "How it's derived" line (`SOURCE_DERIVATION`) + live provenance chips
-  (`SOURCE_BREAKDOWN_SQL`) — pixiv tags/modes, Graphtreon categories,
-  bsky feeds, portfolioday queries, artstation dimensions, deviantart
-  feeds (recorded in discovery_details going forward), vgen listing
-  heads. Keep BOTH dicts in sync when adding a source.
-- **`db.set_platform_stats` MERGES jsonb now** (was replace — vgen
-  hydration's vgen_tags wiped the harvest's vgen_reviews/categories;
-  reviews backfilled from discovery_details, categories re-walked).
-- VGen twitter wave: 970+89 hydrated ($10.98 user-approved + $0.93
-  standing rule), +476 artists over two pipeline rounds. VGen top-1000
-  cohort: reviews 17 min / 32 median / 657 max; each artist surfaced on
-  ~9 listing heads on average (platform_stats.vgen_categories, capped 6).
-
-## Previous state (2026-07-22 latest+1 — VGen landed)
-
-**Directory 5,469 artists** (4,435 → 5,469; lang_en 3,388). Paid X spend
-$63.77. Review queue 109 pending. Migrations at 0031. **Twitter backlog
-$10.05 — just OVER the $10 standing rule, awaiting user approval.**
-
-- **VGen live** (`discover_vgen.py`, migration 0031): ~124k of 358k
-  sitemap users are artists (services sitemaps). No native top-N sort —
-  harvest walks all ~1,044 server-rendered category listings
-  (searchCategories sitemap; robots Content-Signal `use=reference`
-  permits), aggregates surfaced services per artist, ranks by client
-  totalReviews, mints top N (`vgen_marketplace`). 5,299 distinct seen,
-  top 1,000 minted, 1,153 profiles hydrated → 3,720 profile_field edges
-  (registered socials), 997 vgen-sourced directory entries.
-  `__NEXT_DATA__` yields userID→native_id, servicesStatus OPEN/CLOSED →
-  authoritative commission state (`vgen:services_status`, conf .95),
-  service tags → `platform_stats.vgen_tags`, mature services → nsfw
-  platform_flag. vgen→vgen bio links = related `same_platform_mention`.
-  vgen:profile snapshots stay IN reextract (bio_text is the full source).
-  Listing pagination cursors are client-API-only (ignored on SSR routes) —
-  scale via the 1,044 listing heads + `latest` sort over time, not depth.
-- **Source scouting** (`docs/source-scouting.md`, live-probed): next up
-  Itaku (open JSON API, aligned), Misskey cross-hydration (598 held
-  accounts), Tumblr enrichment (user must register free API key).
-  No-gos with reasons: Cara (Cloudflare-walled incl. /api — watch for
-  their official API), Mihuashi (signed API 签名错误 — recommend
-  display-only platform row), Instagram (no compliant harvest exists).
-
-## Previous state (2026-07-22 latest — project purge + DeviantArt)
-
-**Directory 4,435 artists** (~32k account rows), lang_en 2,454 / ja 1,918.
-Paid X spend **$63.77 of $100**. Review queue 91 pending (35 singleton_gate
-+ 47 other + 9 merges). Smoke green, migrations at 0030.
-
-- **Project accounts are parsed out entirely** (migration 0029
-  `accounts.project` + `flag_project_accounts` sweep in cluster.py, runs
-  every cluster pass): zine/bang-suffixed handles, project-titled display
-  names, or self-describing bios ("A <fandom> zine…", 合同誌です). Precision
-  tuned — contributor mentions ("creating zines", アンソロ寄稿,
-  "@アンソロ発売中" display names) never match; human-attached members are
-  exempt. Flagged accounts (2,697): no clustering (edges excluded from
-  union-find AND the 4b flip-rescue), invisible in the review-UI
-  connections table, barred from the paid twitter backlog (and worthless as
-  vouchers), pending singleton_gate items auto-reject
-  (`pipeline:project_gate`), and all-project artists auto-demote (text-less
-  display-only members can't save them; the Demoted page is the recovery
-  path).
-- **DeviantArt is live** (`discover_deviantart.py`, migration 0030):
-  `--top N` walks the official public RSS backend's Popular feeds (overall
-  + digitalart/traditional/fanart + search-term variants; 60/page; the
-  backend throttles bursts by serving EMPTY 200 channels — 60s
-  retry-once-then-move-on). 363 roster artists (`deviantart_popular`, the
-  live pool is ~350-400 — feeds rotate, later runs add more).
-  `--hydrate-known` fetches `/{user}/about` (robots-permitted, 1.5s pace,
-  90s backoff + abort after 3 straight 403s — resumes next run):
-  `__INITIAL_STATE__` yields userId→native_id, watchers→followers,
-  socialLinks→profile_field edges, about-markup URLs→bio_link edges.
-  **DA→DA about-page links are `related` (`same_platform_mention`)** —
-  feature/friend dumps, not identity. `deviantart:about`/`deviantart:rss`
-  snapshots are excluded from reextract (edges derive from the full markup,
-  the snapshot stores tagline+excerpt only). Pipeline auto-hydrates
-  deviantart alongside skeb/pixiv/patreon. Net: +382 artists this session
-  incl. cross-links, DA cohort's twitters hydrated (~$4.6, gate-vouched).
-- The zine hydration gate holds: 890 gated vs 117-ish hydratable per round;
-  round yields stayed positive through the DA expansion (+7/+8 artists).
-
-## Previous state (2026-07-22 later session — bugfixes + gated hydration)
-
-**Directory 4,054 artists** (+71 today), ~26k accounts rows. Paid X spend
-**$59.14 of $100**. Review queue **120 pending** (81 singleton_gate + 34
-anomalies/other + 5 merges) + 67 artists in needs_review. Smoke green.
-
-- **Referrer-gated twitter hydration** (`hydrate_twitter.gated_handle_backlog`):
-  handle-only backlog rows need an artist-flavored voucher — a referrer that is
-  a listed artist's account, roster-discovered, or art-keyword-flavored (one
-  hop up through link hubs so carrd pages don't block vouching), and NOT
-  project-flavored (`looks_like_project`). Zine/big-bang/fanfic participant
-  rosters never earn a paid read; gated targets stay `unknown` at zero cost and
-  lift automatically if an artful referrer appears. This **fixed frontier
-  economics**: 4 gated rounds yielded +71 artists at ~$6.9 (pre-gate ring 3 was
-  0 artists). Yield collapsed again in round 4 (+2 from 230 reads) — **196
-  hydratable (~$1.96) + 650 gated left intentionally**; work roster sources
-  and the singleton_gate queue instead.
-- **artstation.com/artist/<name>** (old-style profile URLs) now parse the real
-  handle; bare `/artist` + more reserved paths excluded. The junk shared
-  'artist' account (id 8952) is hidden, its edges retracted, real accounts
-  recovered via reextract.
-- **Review-UI**: bios/cells wrap unbroken runs (`overflow-wrap: anywhere` —
-  one wide bio used to stretch every table); buttons stay single-line;
-  select-all header checkboxes on the artist-page accounts + connections bulk
-  forms (`input[data-checkall="<form id>"]` helper in base.html).
-- **Merge/approve 500s were NOT a code bug**: a stale server process (started
-  before the component-gate commit) had the old `extract` module in memory;
-  first merge/approve lazily imported the new `cluster.py`, whose
-  `from .extract import looks_like_project` hit ImportError. **Restart the
-  review UI after committing code the running server hasn't imported yet.**
+**Next up (in priority order):**
+1. **Itaku worker** (open public JSON API, anti-genAI-aligned community —
+   see docs/source-scouting.md; roster via images-by-likes, profiles carry
+   user_sites/followers/tags).
+2. **Misskey cross-hydration** (598 held accounts, open per-instance API,
+   free edges from profile fields[]).
+3. **Work the review queues** (~135 pending) + the Demoted page (the 563
+   vgen culls and 48 zine-sweep demotions may hide a few real artists).
+4. **Tumblr enrichment** — blocked on user registering a free API key
+   (tumblr.com/oauth/apps); 1,568 held accounts waiting.
+5. Recurring skims: DA popular rotation, vgen tier-1/2 re-walks
+   (--max-new bounded), pixiv tag rounds, bluesky list/starter-pack
+   expansion. Cara: watch for their official API.
 
 ## Previous state (2026-07-22, end of session — western discovery expansion)
 
