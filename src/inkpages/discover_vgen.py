@@ -94,16 +94,20 @@ def harvest(conn, client, platforms, stats, top: int,
             username = mod.get("username")
             if not username or mod.get("discoveryStatus") not in (None, "LIVE"):
                 continue
-            reviews = ((svc.get("artistReviewStats") or {})
-                       .get("totalReviews") or 0)
+            rstats = svc.get("artistReviewStats") or {}
+            reviews = rstats.get("totalReviews") or 0
             row = artists.setdefault(username, {
                 "username": username,
                 "display_name": mod.get("displayName") or username,
                 "user_id": svc.get("userID"),
-                "reviews": 0, "mature": False, "categories": set(),
+                "reviews": 0, "rating": None, "mature": False,
+                "categories": set(),
             })
             row["user_id"] = row["user_id"] or svc.get("userID")
-            row["reviews"] = max(row["reviews"], reviews)
+            if reviews >= row["reviews"]:
+                row["reviews"] = reviews
+                if rstats.get("averageRating"):
+                    row["rating"] = round(float(rstats["averageRating"]), 2)
             row["mature"] = row["mature"] or bool(svc.get("containsMatureContent"))
             row["categories"].add(url.rsplit("/category/", 1)[-1]
                                   .rsplit("/catalogue/", 1)[-1])
@@ -131,6 +135,7 @@ def harvest(conn, client, platforms, stats, top: int,
             continue
         db.set_platform_stats(conn, account_id, {
             "vgen_reviews": row["reviews"],
+            **({"vgen_rating": row["rating"]} if row["rating"] else {}),
             "vgen_categories": sorted(row["categories"])[:6],
         })
         snapshot_id = db.insert_snapshot(
@@ -160,10 +165,14 @@ def profile_fields(data: dict) -> dict | None:
             if t not in tags:
                 tags.append(t)
         mature = mature or bool(svc.get("containsMatureContent"))
+    rstats = user.get("artistReviewStats") or {}
     return {
         "user_id": user.get("userID"),
         "username": user.get("username"),
         "display_name": user.get("displayName"),
+        "reviews": rstats.get("totalReviews"),
+        "rating": (round(float(rstats["averageRating"]), 2)
+                   if rstats.get("averageRating") else None),
         "bio": (user.get("bio") or "").strip(),
         "avatar": user.get("avatarURL"),
         "socials": [s.get("link") for s in user.get("socials") or []
@@ -248,9 +257,15 @@ def hydrate_known(conn, client, platforms, limit, stats) -> None:
                     {"nid": page["user_id"], "id": account_id,
                      "pf": platforms["vgen"]})
         db.set_avatar(conn, account_id, page["avatar"])
+        profile_stats: dict = {}
         if page["tags"]:
-            db.set_platform_stats(conn, account_id,
-                                  {"vgen_tags": page["tags"][:8]})
+            profile_stats["vgen_tags"] = page["tags"][:8]
+        if page["reviews"]:
+            profile_stats["vgen_reviews"] = page["reviews"]
+        if page["rating"]:
+            profile_stats["vgen_rating"] = page["rating"]
+        if profile_stats:
+            db.set_platform_stats(conn, account_id, profile_stats)
         # Platform-authoritative commission state — the marketplace's own
         # OPEN/CLOSED switch, not a bio phrase.
         if page["services_status"] in ("OPEN", "CLOSED"):

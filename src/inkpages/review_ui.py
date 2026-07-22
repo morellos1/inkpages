@@ -27,7 +27,7 @@ TEMPLATES = {
   header a { color: #cdd7ee; text-decoration: none; } header a:hover { color: #fff; }
   header .brand { font-weight: 700; color: #fff; }
   header .pill { background: #fca311; color: #14213d; border-radius: 9px; padding: 0 .5em; font-size: .82em; font-weight: 700; }
-  main { max-width: 1150px; margin: 1.4rem auto; padding: 0 1.2rem; }
+  main { max-width: 1400px; margin: 1.4rem auto; padding: 0 1.2rem; }
   table { border-collapse: collapse; width: 100%; background: #fff; }
   th, td { text-align: left; padding: .45rem .6rem; border-bottom: 1px solid #e7e7e7; vertical-align: top; }
   th { background: #f0f2f7; font-size: .85em; text-transform: uppercase; letter-spacing: .04em; }
@@ -47,8 +47,17 @@ TEMPLATES = {
   /* overflow-wrap: an unbroken run (long URL, kaomoji wall) must wrap instead
      of stretching its cell — one wide bio used to widen every table on the page. */
   .bio { background: #f6f6f2; border-left: 3px solid #cbd5e1; padding: .4rem .7rem; white-space: pre-wrap; font-size: .92em; overflow-wrap: anywhere; }
-  td { overflow-wrap: anywhere; }
+  /* Unbroken-run wrapping is scoped: bios and evidence/details cells carry
+     arbitrary text (URLs, kaomoji walls) and must wrap anywhere; everywhere
+     else it would break handles and emails mid-word. */
+  .wrapany { overflow-wrap: anywhere; }
   td button { overflow-wrap: normal; white-space: nowrap; }
+  /* Column-squish guards: dates, platform names and confidences never
+     deserve a second line; long names/emails ellipsize instead of folding
+     into 2-3 line cells (full value in the title tooltip). */
+  td.nowrap { white-space: nowrap; }
+  td.trunc { max-width: 13rem; overflow: hidden; text-overflow: ellipsis;
+             white-space: nowrap; }
   form.inline { display: inline; }
   button { border: 0; border-radius: 6px; padding: .35rem .8rem; cursor: pointer; font-weight: 600; }
   button.ok { background: #d7f4dd; } button.no { background: #fde2e2; } button.warn { background: #fca311; }
@@ -260,8 +269,12 @@ document.querySelectorAll('.bio').forEach(function (box) {
     {% if s.paid_members %}<span class="stat-chip">{{ "{:,}".format(s.paid_members) }} paid members</span>{% endif %}
     {% if s.graphtreon_category %}<span class="stat-chip">{{ s.graphtreon_category }}</span>{% endif %}
     {% if s.graphtreon_metric %}<span class="stat-chip">{{ s.graphtreon_metric | replace("top-patreon-", "top by ") | replace("top-creators-by-", "top by ") | replace("top-growing-patreon", "fastest growing") | replace("-", " ") }}</span>{% endif %}
+  {% elif platform == 'vgen' %}
+    {# tags/categories stay in the DB but are too wide to show #}
+    {% if s.vgen_reviews %}<span class="stat-chip good">{{ "{:,}".format(s.vgen_reviews) }} reviews{% if s.vgen_rating %} · ★{{ s.vgen_rating }}{% endif %}</span>{% endif %}
   {% else %}
-    {% for k, v in s.items() if v is not none %}<span class="stat-chip">{{ k }}: {{ v }}</span>{% endfor %}
+    {# scalars only — a raw list/dict chip once stretched the whole page #}
+    {% for k, v in s.items() if v is not none and v is not mapping and (v is string or v is not sequence) %}<span class="stat-chip">{{ k }}: {{ v }}</span>{% endfor %}
   {% endif %}
   </div>
 {% endif %}{% endmacro %}
@@ -328,10 +341,10 @@ document.querySelectorAll('.bio').forEach(function (box) {
   <td>{% if a.avatar_url %}<img src="{{ img_src(a.avatar_url) }}" width="36" height="36" style="border-radius:50%;object-fit:cover" loading="lazy">{% endif %}</td>
   {# When the slug is an opaque pixiv id, lead with the human name. #}
   {%- set id_slug = a.public_slug.isdigit() and a.display_name -%}
-  <td><a href="{{ url_for('artist', artist_id=a.artist_id) }}"><b>{{ a.display_name if id_slug else a.public_slug }}</b></a><br>
+  <td class="trunc" title="{{ a.display_name }} /{{ a.public_slug }}"><a href="{{ url_for('artist', artist_id=a.artist_id) }}"><b>{{ a.display_name if id_slug else a.public_slug }}</b></a><br>
       <span class="muted">{{ ('/' ~ a.public_slug) if id_slug else a.display_name }}</span></td>
-  <td>{{ a.language }}</td>
-  <td>{{ "{:,}".format(a.followers) if a.followers else "—" }}</td>
+  <td class="nowrap">{{ a.language }}</td>
+  <td class="nowrap">{{ "{:,}".format(a.followers) if a.followers else "—" }}</td>
   <td>{% for s in a.sources or [] %}<span class="chip badge-noai" style="background:#e8edf7;color:#14213d">{{ s }}</span>{% endfor %}
       {% for acc in a.accounts or [] %}<span class="chip">{{ acc.platform }}: {{ acc_label(acc.platform, acc.handle, acc.display_name) }}</span>{% endfor %}</td>
   {%- set plats = (a.accounts or [])|map(attribute='platform')|list -%}
@@ -382,17 +395,17 @@ document.querySelectorAll('.bio').forEach(function (box) {
 <table><tr><th><input type="checkbox" data-checkall="bulkacc" title="select all"></th><th>platform</th><th>handle</th><th>confidence</th><th>nsfw</th><th>followers</th><th>last post</th><th>comms</th><th>contact</th><th>bio (latest snapshot)</th><th></th></tr>
 {% for acc in accounts %}<tr>
   <td><input type="checkbox" form="bulkacc" name="ids" value="{{ acc.id }}"></td>
-  <td>{{ acc.platform }}</td>
+  <td class="nowrap">{{ acc.platform }}</td>
   <td>{{ m.acct_link(acc.platform, acc.handle, acc.profile_url, acc.display_name) }}
       {{ m.stats(acc.platform, acc.platform_stats) }}</td>
-  <td class="conf-{{ acc.confidence }}">{{ acc.confidence }}</td>
-  <td>{% if acc.nsfw %}<span class="chip badge-nsfw">18+</span>{% else %}<span class="muted">safe</span>{% endif %}</td>
-  <td>{{ "{:,}".format(acc.followers_count) if acc.followers_count else "—" }}</td>
-  <td>{{ acc.last_post_at.date() if acc.last_post_at else "—" }}</td>
+  <td class="conf-{{ acc.confidence }} nowrap">{{ acc.confidence }}</td>
+  <td class="nowrap">{% if acc.nsfw %}<span class="chip badge-nsfw">18+</span>{% else %}<span class="muted">safe</span>{% endif %}</td>
+  <td class="nowrap">{{ "{:,}".format(acc.followers_count) if acc.followers_count else "—" }}</td>
+  <td class="nowrap">{{ acc.last_post_at.date() if acc.last_post_at else "—" }}</td>
   <td>{% if acc.commission_status != 'unknown' %}<span class="chip badge-{{ acc.commission_status }}"
         title="{{ acc.commission_detail }}">{{ acc.commission_status }}
         · {{ acc.commission_checked_at.date() if acc.commission_checked_at }}</span>{% else %}—{% endif %}</td>
-  <td>{{ acc.contact_email or "—" }}</td>
+  <td class="trunc" title="{{ acc.contact_email or '' }}">{{ acc.contact_email or "—" }}</td>
   <td>{{ m.bio(acc.bio) }}</td>
   <td><form class="inline" method="post" action="{{ url_for('detach', artist_id=artist.id, account_id=acc.id) }}"
        data-confirm="Detach {{ acc.handle }} from this artist? It becomes a connection and will never auto-reattach.">{{ csrf() }}
@@ -418,13 +431,13 @@ attach/merge.</p>
 <table><tr><th><input type="checkbox" data-checkall="bulkconn" title="select all"></th><th>direction</th><th>account</th><th>belongs to</th><th>followers</th><th>claim</th><th>evidence</th><th></th></tr>
 {% for c in connections %}<tr>
   <td><input type="checkbox" form="bulkconn" name="ids" value="{{ c.other_id }}"></td>
-  <td>{{ c.direction }}</td>
+  <td class="nowrap">{{ c.direction }}</td>
   <td><span class="chip">{{ c.other_platform }}: {{ m.acct_link(c.other_platform, c.other_handle, c.other_profile_url, c.other_display_name) }}</span></td>
-  <td>{% if c.other_artist_id %}<a href="{{ url_for('artist', artist_id=c.other_artist_id) }}">{{ c.other_artist_slug }}</a>{% else %}<span class="muted">unattached</span>{% endif %}</td>
-  <td>{{ "{:,}".format(c.other_followers) if c.other_followers else "—" }}</td>
+  <td class="trunc" title="{{ c.other_artist_slug or '' }}">{% if c.other_artist_id %}<a href="{{ url_for('artist', artist_id=c.other_artist_id) }}">{{ c.other_artist_slug }}</a>{% else %}<span class="muted">unattached</span>{% endif %}</td>
+  <td class="nowrap">{{ "{:,}".format(c.other_followers) if c.other_followers else "—" }}</td>
   <td>{% if c.claim == 'same_person' %}<span class="chip badge-waitlist">same-person claim — unresolved</span>
       {% else %}{{ c.relation_hint or "related" }}{% endif %}</td>
-  <td class="muted">{{ c.matched_text or c.evidence_url or "" }}</td>
+  <td class="muted wrapany">{{ c.matched_text or c.evidence_url or "" }}</td>
   <td><form class="inline" method="post" action="{{ url_for('confirm_connection', artist_id=artist.id, account_id=c.other_id) }}"
        data-confirm="{% if c.other_artist_id %}Merge artist {{ c.other_artist_slug }} (via {{ c.other_platform }}:{{ c.other_handle }}) into this artist?{% else %}Confirm {{ c.other_platform }}:{{ c.other_handle }} as the same person and attach it to this artist?{% endif %}">{{ csrf() }}
        <button class="ok">{{ 'merge' if c.other_artist_id else 'attach' }}</button></form>
@@ -449,7 +462,7 @@ attach/merge.</p>
 <h2>Events</h2>
 <table><tr><th>when</th><th>event</th><th>actor</th><th>details</th></tr>
 {% for e in events %}<tr><td>{{ e.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
-<td>{{ e.event }}</td><td>{{ e.actor }}</td><td class="muted">{{ e.details }}</td></tr>{% endfor %}</table>
+<td>{{ e.event }}</td><td>{{ e.actor }}</td><td class="muted wrapany">{{ e.details }}</td></tr>{% endfor %}</table>
 {% endblock %}""",
 
 "demoted.html": """{% extends "base.html" %}{% import "_macros.html" as m %}{% block content %}
