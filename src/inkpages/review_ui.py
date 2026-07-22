@@ -802,7 +802,7 @@ COMMS_LABELS = [("skeb", "skeb open"), ("pixiv", "pixiv open"), ("bio", "bio-att
 
 # Sources an artist can be discovered through (directory_entries.sources).
 SOURCE_OPTIONS = ["skeb", "bluesky", "twitter", "pixiv", "patreon", "artstation",
-                  "deviantart"]
+                  "deviantart", "vgen"]
 
 # Avatar CDNs that 403 without a Referer — proxied through /img (see img_proxy).
 PROXY_HOSTS = ("i.pximg.net", "s.pximg.net")
@@ -1162,6 +1162,12 @@ SOURCE_META = {
         "registered social links, watcher count and bio — including "
         "DeviantArt's per-work maturity flags.",
         ["curated by popularity", "full profile fetch"]),
+    "vgen_marketplace": ("VGen marketplace", True, "free",
+        "Commission artists surfaced at the head of VGen's category "
+        "listings, ranked by client review count. Profiles supply their "
+        "registered social links, the marketplace's own commissions "
+        "OPEN/CLOSED switch, service tags and mature-content flags.",
+        ["curated by reviews", "authoritative comms status"]),
     "manual": ("Added by hand", False, "free",
         "An account a human attached from the artist page (pasted profile "
         "URL). Human decisions are never undone by the pipeline.",

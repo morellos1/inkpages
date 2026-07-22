@@ -75,6 +75,8 @@ ROSTER_SOURCES = {
     "artstation_ranking",
     # Charting on DeviantArt's Popular RSS feed (official public backend).
     "deviantart_popular",
+    # Surfaced at the head of a VGen marketplace category listing.
+    "vgen_marketplace",
     "convention_list",
     "platform_roster",  # Cara / ArtStation / DeviantArt / XFolio enumerations
 }
