@@ -198,6 +198,86 @@ def harvest(conn, client, platforms, stats, max_new: int = 0) -> None:
     conn.commit()
 
 
+# Creator-page text: "… Drawing & Painting Rank 4th Patreon Rank 424th …
+# Paid Members 3,908 …". Category names come from Graphtreon's fixed
+# taxonomy — matching the closed list avoids greedy captures ("Loish Last 30
+# days Drawing & Painting"); "Patreon Rank" is the overall rank, excluded.
+_GT_CATEGORY_NAMES = (
+    "3D Printing", "Animals", "Animation", "Comics", "Cosplay",
+    "Crafts & DIY", "Dance & Theater", "Drawing & Painting", "Finance",
+    "Games", "Magazine", "Mastodon", "Music", "Other", "Photography",
+    "Podcasts", "Video", "Writing")
+_CREATOR_CATEGORY = re.compile(
+    r"((?:Adult )?(?:%s))\s+Rank\s+([\d,]+)(?:st|nd|rd|th)"
+    % "|".join(re.escape(n) for n in _GT_CATEGORY_NAMES))
+_CREATOR_MEMBERS = re.compile(r"Paid Members\s+([\d,]+)")
+
+
+def _category_slug(name: str) -> str:
+    return re.sub(r"-+", "-", re.sub(r"[^a-z0-9]+", "-", name.lower())).strip("-")
+
+
+def graphtreon_enrich(conn, client, platforms, limit, stats) -> None:
+    """Cross-hydration rule: a new source must enrich ALL existing accounts
+    on its platform, not just its own discoveries. Patreon accounts that
+    never charted on a harvested top list (bio-link targets etc.) get their
+    Graphtreon creator page fetched for category + paid members; adult
+    categories carry Patreon's self-declared flag -> nsfw platform_flag."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """select a.id, a.handle::text from accounts a
+               join platforms p on p.id = a.platform_id
+               where p.slug = 'patreon' and a.status not in ('deleted', 'hidden')
+                 and not (coalesce(a.platform_stats, '{}'::jsonb) ? 'graphtreon_category')
+                 and not (coalesce(a.platform_stats, '{}'::jsonb) ? 'graphtreon_checked')
+               order by a.id limit %s""",
+            (limit,))
+        todo = cur.fetchall()
+    print(f"graphtreon enrich: {len(todo)} patreon accounts to check")
+    for n, (account_id, vanity) in enumerate(todo, 1):
+        time.sleep(1.0)
+        resp = fetch_page(client, f"{GRAPHTREON}/creator/{vanity}")
+        if resp is None:
+            stats["enrich_fetch_failed"] += 1
+            continue
+        if resp.status_code == 404:
+            # Not tracked by Graphtreon — remember, never refetch.
+            db.set_platform_stats(conn, account_id,
+                                  {"graphtreon_checked": True,
+                                   "graphtreon_tracked": False})
+            stats["enrich_not_tracked"] += 1
+            continue
+        if resp.status_code != 200:
+            stats[f"enrich_http_{resp.status_code}"] += 1
+            continue
+        text = htmllib.unescape(re.sub(r"\s+", " ", _TAGS.sub(" ", resp.text)))
+        payload: dict = {"graphtreon_checked": True}
+        if m := _CREATOR_CATEGORY.search(text):
+            payload["graphtreon_category"] = _category_slug(m.group(1))
+            payload["graphtreon_rank"] = int(m.group(2).replace(",", ""))
+        if m := _CREATOR_MEMBERS.search(text):
+            payload["paid_members"] = int(m.group(1).replace(",", ""))
+        db.set_platform_stats(conn, account_id, payload)
+        if payload.get("paid_members"):
+            with conn.cursor() as cur:
+                cur.execute("update accounts set followers_count = %s where id = %s",
+                            (payload["paid_members"], account_id))
+        if str(payload.get("graphtreon_category", "")).startswith("adult-"):
+            snapshot_id = db.insert_snapshot(
+                conn, account_id, bio_text=None, display_name=None,
+                followers_count=payload.get("paid_members"), following_count=None,
+                raw=payload, fetch_source="graphtreon:creator")
+            db.upsert_content_flag(conn, account_id, "nsfw", "platform_flag",
+                                   "patreon:adult_category", snapshot_id)
+            stats["enrich_nsfw_flags"] += 1
+        stats["enriched"] += 1
+        if n % 50 == 0:
+            conn.commit()
+            print(f"  …{n} checked")
+    db.log_api_usage(conn, "graphtreon", "creator-pages", len(todo), 0)
+    conn.commit()
+
+
 def _walk_ld(node, out) -> None:
     """Collect sameAs / description / name / image from JSON-LD, recursively."""
     if isinstance(node, dict):
@@ -369,11 +449,16 @@ def main() -> None:
                              "harvest, best chart position first (0 = no cap)")
     parser.add_argument("--hydrate-known", action="store_true",
                         help="fetch patreon pages for accounts never hydrated")
+    parser.add_argument("--graphtreon-enrich", action="store_true",
+                        help="fetch graphtreon creator pages for patreon "
+                             "accounts that never charted on a harvested list "
+                             "(category tags, paid members)")
     parser.add_argument("--limit", type=int, default=400,
-                        help="max patreon pages per hydrate-known run")
+                        help="max pages per hydrate-known / enrich run")
     args = parser.parse_args()
-    if not (args.harvest or args.hydrate_known):
-        parser.error("nothing to do: pass --harvest and/or --hydrate-known")
+    if not (args.harvest or args.hydrate_known or args.graphtreon_enrich):
+        parser.error("nothing to do: pass --harvest, --hydrate-known "
+                     "and/or --graphtreon-enrich")
 
     stats: Counter = Counter()
     with httpx.Client(headers=UA, follow_redirects=True) as client, \
@@ -383,6 +468,8 @@ def main() -> None:
             harvest(conn, client, platforms, stats, max_new=args.max_new)
         if args.hydrate_known:
             hydrate_known(conn, client, platforms, args.limit, stats)
+        if args.graphtreon_enrich:
+            graphtreon_enrich(conn, client, platforms, args.limit, stats)
     print("done:", dict(stats))
 
 

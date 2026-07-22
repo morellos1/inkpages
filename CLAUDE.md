@@ -380,6 +380,13 @@ normal guards. See `discover_skeb.py` `FIELD_VALUE_BLOCKLIST`.
 
 ## Conventions
 
+- **Cross-hydration rule (strict, user directive 2026-07-22)**: whenever a
+  new discovery/enrichment source lands, ALL existing accounts on that
+  platform must be enriched through it too — not just the accounts the new
+  source discovers. Every source worker ships a backfill mode
+  (`--hydrate-known`, `--graphtreon-enrich`) and it runs over the whole
+  existing population as part of landing the source.
+
 - Commit messages end with the Claude co-author trailer. Commit after each
   coherent feature; never commit `.env` (gitignored, holds X API creds +
   `PIXIV_SESSION` — **both were pasted in chat; user should rotate**).

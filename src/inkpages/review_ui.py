@@ -240,7 +240,6 @@ document.querySelectorAll('.bio').forEach(function (box) {
     {% if s.official %}<span class="stat-chip good">official</span>{% endif %}
   {% elif platform == 'patreon' %}
     {% if s.paid_members %}<span class="stat-chip">{{ "{:,}".format(s.paid_members) }} paid members</span>{% endif %}
-    {% if s.monthly_earnings_usd %}<span class="stat-chip good">${{ "{:,}".format(s.monthly_earnings_usd) }}/mo</span>{% endif %}
     {% if s.graphtreon_category %}<span class="stat-chip">{{ s.graphtreon_category }}</span>{% endif %}
     {% if s.graphtreon_metric %}<span class="stat-chip">{{ s.graphtreon_metric | replace("top-patreon-", "top by ") | replace("top-creators-by-", "top by ") | replace("top-growing-patreon", "fastest growing") | replace("-", " ") }}</span>{% endif %}
   {% else %}
@@ -362,8 +361,9 @@ document.querySelectorAll('.bio').forEach(function (box) {
 </div>
 
 <h2>Accounts</h2>
-<table><tr><th>platform</th><th>handle</th><th>confidence</th><th>nsfw</th><th>followers</th><th>last post</th><th>comms</th><th>contact</th><th>bio (latest snapshot)</th><th></th></tr>
+<table><tr><th></th><th>platform</th><th>handle</th><th>confidence</th><th>nsfw</th><th>followers</th><th>last post</th><th>comms</th><th>contact</th><th>bio (latest snapshot)</th><th></th></tr>
 {% for acc in accounts %}<tr>
+  <td><input type="checkbox" form="bulkacc" name="ids" value="{{ acc.id }}"></td>
   <td>{{ acc.platform }}</td>
   <td>{{ m.acct_link(acc.platform, acc.handle, acc.profile_url, acc.display_name) }}
       {{ m.stats(acc.platform, acc.platform_stats) }}</td>
@@ -380,6 +380,9 @@ document.querySelectorAll('.bio').forEach(function (box) {
        data-confirm="Detach {{ acc.handle }} from this artist? It becomes a connection and will never auto-reattach.">{{ csrf() }}
        <button class="no">detach</button></form></td>
 </tr>{% endfor %}</table>
+<form id="bulkacc" class="inline" method="post" action="{{ url_for('bulk_detach', artist_id=artist.id) }}"
+      data-confirm="Detach all selected accounts? They become connections and will never auto-reattach.">{{ csrf() }}
+  <button class="no">Detach selected</button></form>
 
 {% if request.args.get('msg') %}<p class="card" style="border-left:3px solid {{ '#2e7d32' if request.args.get('ok') else '#c62828' }}">{{ request.args.get('msg') }}</p>{% endif %}
 <form class="inline" method="post" action="{{ url_for('add_account', artist_id=artist.id) }}" style="margin:8px 0">{{ csrf() }}
@@ -394,8 +397,9 @@ document.querySelectorAll('.bio').forEach(function (box) {
 claim</b> means the evidence says same person but clustering could not act alone
 (the account belongs to another artist, or a guard held it back) — confirm to
 attach/merge.</p>
-<table><tr><th>direction</th><th>account</th><th>belongs to</th><th>followers</th><th>claim</th><th>evidence</th><th></th></tr>
+<table><tr><th></th><th>direction</th><th>account</th><th>belongs to</th><th>followers</th><th>claim</th><th>evidence</th><th></th></tr>
 {% for c in connections %}<tr>
+  <td><input type="checkbox" form="bulkconn" name="ids" value="{{ c.other_id }}"></td>
   <td>{{ c.direction }}</td>
   <td><span class="chip">{{ c.other_platform }}: {{ m.acct_link(c.other_platform, c.other_handle, c.other_profile_url, c.other_display_name) }}</span></td>
   <td>{% if c.other_artist_id %}<a href="{{ url_for('artist', artist_id=c.other_artist_id) }}">{{ c.other_artist_slug }}</a>{% else %}<span class="muted">unattached</span>{% endif %}</td>
@@ -409,7 +413,12 @@ attach/merge.</p>
       <form class="inline" method="post" action="{{ url_for('dismiss_connection', artist_id=artist.id, account_id=c.other_id) }}"
        data-confirm="Remove {{ c.other_platform }}:{{ c.other_handle }} from this artist's connections? It has no relation to the artist and will stay gone even if the link is re-extracted.">{{ csrf() }}
        <button class="no">remove</button></form></td>
-</tr>{% else %}<tr><td colspan="7" class="muted">none</td></tr>{% endfor %}</table>
+</tr>{% else %}<tr><td colspan="8" class="muted">none</td></tr>{% endfor %}</table>
+<form id="bulkconn" class="inline" method="post" action="{{ url_for('bulk_connections', artist_id=artist.id) }}">{{ csrf() }}
+  <button class="ok" name="action" value="confirm"
+          data-confirm="Confirm all selected connections as the same person? Floating accounts attach; accounts of other artists merge those artists in.">Attach/merge selected</button>
+  <button class="no" name="action" value="dismiss"
+          data-confirm="Remove all selected connections? They have no relation to the artist and stay gone even if re-extracted.">Remove selected</button></form>
 
 <h2>Signals</h2>
 <table><tr><th>type</th><th>signal</th><th>matched</th><th>account</th><th>first seen</th><th>last seen</th></tr>
@@ -1281,12 +1290,8 @@ def artist(artist_id):
             pending=pending_count(conn), demoted_count=demoted_count(conn))
 
 
-@app.route("/artist/<int:artist_id>/detach/<int:account_id>", methods=["POST"])
-def detach(artist_id, account_id):
-    """Remove an account from an artist: membership closes (admin event, so
-    clustering never re-attaches it) and connecting edges become related, so
-    the account stays visible as a connection."""
-    with db.connect() as conn, conn.cursor() as cur:
+def _detach_one(conn, artist_id, account_id):
+    with conn.cursor() as cur:
         cur.execute(
             """update artist_accounts set removed_at = now()
                where artist_id = %s and account_id = %s and removed_at is null""",
@@ -1306,17 +1311,21 @@ def detach(artist_id, account_id):
                        (select account_id from artist_accounts
                         where artist_id = %(ar)s and removed_at is null)))""",
             {"acc": account_id, "ar": artist_id})
+
+
+@app.route("/artist/<int:artist_id>/detach/<int:account_id>", methods=["POST"])
+def detach(artist_id, account_id):
+    """Remove an account from an artist: membership closes (admin event, so
+    clustering never re-attaches it) and connecting edges become related, so
+    the account stays visible as a connection."""
+    with db.connect() as conn:
+        _detach_one(conn, artist_id, account_id)
         conn.commit()
     return redirect(url_for("artist", artist_id=artist_id))
 
 
-@app.route("/artist/<int:artist_id>/confirm/<int:account_id>", methods=["POST"])
-def confirm_connection(artist_id, account_id):
-    """Inverse of detach: a human vouches that a 'related' connection is in fact
-    the same person. If the account belongs to another artist, merge them;
-    otherwise attach the floating account. Either way the connecting edges
-    become same_person so re-extraction keeps them merged."""
-    with db.connect() as conn, conn.cursor() as cur:
+def _confirm_one(conn, artist_id, account_id):
+    with conn.cursor() as cur:
         cur.execute("""select artist_id from artist_accounts
                        where account_id = %s and removed_at is null""", (account_id,))
         row = cur.fetchone()
@@ -1349,17 +1358,22 @@ def confirm_connection(artist_id, account_id):
                        (select account_id from artist_accounts
                         where artist_id = %(ar)s and removed_at is null)))""",
             {"acc": account_id, "ar": artist_id})
+
+
+@app.route("/artist/<int:artist_id>/confirm/<int:account_id>", methods=["POST"])
+def confirm_connection(artist_id, account_id):
+    """Inverse of detach: a human vouches that a 'related' connection is in fact
+    the same person. If the account belongs to another artist, merge them;
+    otherwise attach the floating account. Either way the connecting edges
+    become same_person so re-extraction keeps them merged."""
+    with db.connect() as conn:
+        _confirm_one(conn, artist_id, account_id)
         conn.commit()
     return redirect(url_for("artist", artist_id=artist_id))
 
 
-@app.route("/artist/<int:artist_id>/dismiss/<int:account_id>", methods=["POST"])
-def dismiss_connection(artist_id, account_id):
-    """A human rules a connection is pure noise — no relation to the artist.
-    Every edge between the artist's members and that account is dismissed:
-    hidden everywhere and never resurrected by re-extraction (upsert_edge
-    skips rows whose status is 'dismissed')."""
-    with db.connect() as conn, conn.cursor() as cur:
+def _dismiss_one(conn, artist_id, account_id):
+    with conn.cursor() as cur:
         cur.execute(
             """update identity_edges e
                set status = 'dismissed', relation_hint = 'manual_dismiss'
@@ -1378,6 +1392,38 @@ def dismiss_connection(artist_id, account_id):
                values (%s, 'account_removed', 'admin:review-ui', %s)""",
             (artist_id, json.dumps({"account_id": account_id,
                                     "reason": "connection_dismissed"})))
+
+
+@app.route("/artist/<int:artist_id>/dismiss/<int:account_id>", methods=["POST"])
+def dismiss_connection(artist_id, account_id):
+    """A human rules a connection is pure noise — no relation to the artist.
+    Every edge between the artist's members and that account is dismissed:
+    hidden everywhere and never resurrected by re-extraction (upsert_edge
+    skips rows whose status is 'dismissed')."""
+    with db.connect() as conn:
+        _dismiss_one(conn, artist_id, account_id)
+        conn.commit()
+    return redirect(url_for("artist", artist_id=artist_id))
+
+
+@app.route("/artist/<int:artist_id>/bulk_detach", methods=["POST"])
+def bulk_detach(artist_id):
+    with db.connect() as conn:
+        for account_id in request.form.getlist("ids"):
+            _detach_one(conn, artist_id, int(account_id))
+        conn.commit()
+    return redirect(url_for("artist", artist_id=artist_id))
+
+
+@app.route("/artist/<int:artist_id>/bulk_connections", methods=["POST"])
+def bulk_connections(artist_id):
+    """Bulk confirm (attach/merge) or remove for selected connection rows —
+    same per-account logic as the row buttons, one decision dialog."""
+    action = request.form.get("action")
+    one = _confirm_one if action == "confirm" else _dismiss_one
+    with db.connect() as conn:
+        for account_id in request.form.getlist("ids"):
+            one(conn, artist_id, int(account_id))
         conn.commit()
     return redirect(url_for("artist", artist_id=artist_id))
 

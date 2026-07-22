@@ -361,6 +361,12 @@ _NON_WEBSITE_DOMAINS = _PLATFORM_DOMAINS | set(SHORTENER_DOMAINS) | {
     "gmail.com", "amazon.jp", "melonbooks.co.jp", "youtube.jp",
     # Storefront/publisher listing pages, not personal sites.
     "dmm.co.jp", "toranoana.jp", "piccoma.com",
+    # Page infrastructure that appears in hub-page href attributes (font
+    # stylesheets, CDNs, analytics) — style, not links the artist published.
+    "googleapis.com", "gstatic.com", "googletagmanager.com",
+    "google-analytics.com", "jsdelivr.net", "unpkg.com", "cloudflare.com",
+    "cdnjs.com", "typekit.net", "fontawesome.com", "bootstrapcdn.com",
+    "gravatar.com", "wp.com", "wixstatic.com", "squarespace-cdn.com",
 }
 
 
