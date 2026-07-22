@@ -37,11 +37,15 @@ def latest_snapshots(conn):
                join accounts a on a.id = s.account_id
                join platforms p on p.id = a.platform_id
                where p.kind <> 'link_hub'
-                 -- hub pages, graphtreon ranking rows and artstation trending
-                 -- rows are not bios: truncated/absent text that must never
-                 -- drive bio_link retraction against the real profile's links.
+                 -- hub pages, graphtreon ranking rows, artstation trending
+                 -- rows and deviantart about pages are not (whole) bios:
+                 -- truncated/absent text that must never drive bio_link
+                 -- retraction against the links the full page yielded
+                 -- (deviantart edges come from the about markup, while the
+                 -- snapshot stores only tagline+excerpt).
                  and s.fetch_source not in ('hub_crawl', 'graphtreon:ranking',
-                                            'artstation:trending')
+                                            'artstation:trending',
+                                            'deviantart:rss', 'deviantart:about')
                order by s.account_id, s.captured_at desc"""
         )
         return cur.fetchall()

@@ -343,13 +343,20 @@ def hydrate_known(conn, client, platforms, limit, stats) -> None:
             if target_id == account_id or target_id in emitted:
                 return
             emitted.add(target_id)
-            claim = "related" if link.platform == "website" else "same_person"
+            claim, hint = "same_person", None
+            if link.platform == "website":
+                claim, hint = "related", "website"
+            elif link.platform == "deviantart" and evidence_type == "bio_link":
+                # About pages link other deviants constantly (features,
+                # friends, group shoutouts) — mention-grade, not identity.
+                # A registered profile_field pointing at another DA account
+                # stays a same-person claim (the normal guards apply).
+                claim, hint = "related", "same_platform_mention"
             db.upsert_edge(conn, account_id, target_id,
                            evidence_type=evidence_type,
                            evidence_snapshot_id=snapshot_id,
                            evidence_url=link.url, matched_text=None,
-                           claim=claim,
-                           relation_hint="website" if claim == "related" else None)
+                           claim=claim, relation_hint=hint)
             stats[f"edges_{evidence_type}"] += 1
 
         # Registered profile fields (user-entered on DeviantArt — normal

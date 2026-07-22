@@ -10,7 +10,45 @@ is displayed strictly as the artist's own attestation, never our classification.
 Full brief: `~/Desktop/artist-directory-brief.md` (outside the repo). Design
 rationale: `docs/schema.md` and `docs/pipeline.md`.
 
-## Current state (2026-07-22 later session — bugfixes + gated hydration)
+## Current state (2026-07-22 latest — project purge + DeviantArt)
+
+**Directory 4,435 artists** (~32k account rows), lang_en 2,454 / ja 1,918.
+Paid X spend **$63.77 of $100**. Review queue 91 pending (35 singleton_gate
++ 47 other + 9 merges). Smoke green, migrations at 0030.
+
+- **Project accounts are parsed out entirely** (migration 0029
+  `accounts.project` + `flag_project_accounts` sweep in cluster.py, runs
+  every cluster pass): zine/bang-suffixed handles, project-titled display
+  names, or self-describing bios ("A <fandom> zine…", 合同誌です). Precision
+  tuned — contributor mentions ("creating zines", アンソロ寄稿,
+  "@アンソロ発売中" display names) never match; human-attached members are
+  exempt. Flagged accounts (2,697): no clustering (edges excluded from
+  union-find AND the 4b flip-rescue), invisible in the review-UI
+  connections table, barred from the paid twitter backlog (and worthless as
+  vouchers), pending singleton_gate items auto-reject
+  (`pipeline:project_gate`), and all-project artists auto-demote (text-less
+  display-only members can't save them; the Demoted page is the recovery
+  path).
+- **DeviantArt is live** (`discover_deviantart.py`, migration 0030):
+  `--top N` walks the official public RSS backend's Popular feeds (overall
+  + digitalart/traditional/fanart + search-term variants; 60/page; the
+  backend throttles bursts by serving EMPTY 200 channels — 60s
+  retry-once-then-move-on). 363 roster artists (`deviantart_popular`, the
+  live pool is ~350-400 — feeds rotate, later runs add more).
+  `--hydrate-known` fetches `/{user}/about` (robots-permitted, 1.5s pace,
+  90s backoff + abort after 3 straight 403s — resumes next run):
+  `__INITIAL_STATE__` yields userId→native_id, watchers→followers,
+  socialLinks→profile_field edges, about-markup URLs→bio_link edges.
+  **DA→DA about-page links are `related` (`same_platform_mention`)** —
+  feature/friend dumps, not identity. `deviantart:about`/`deviantart:rss`
+  snapshots are excluded from reextract (edges derive from the full markup,
+  the snapshot stores tagline+excerpt only). Pipeline auto-hydrates
+  deviantart alongside skeb/pixiv/patreon. Net: +382 artists this session
+  incl. cross-links, DA cohort's twitters hydrated (~$4.6, gate-vouched).
+- The zine hydration gate holds: 890 gated vs 117-ish hydratable per round;
+  round yields stayed positive through the DA expansion (+7/+8 artists).
+
+## Previous state (2026-07-22 later session — bugfixes + gated hydration)
 
 **Directory 4,054 artists** (+71 today), ~26k accounts rows. Paid X spend
 **$59.14 of $100**. Review queue **120 pending** (81 singleton_gate + 34

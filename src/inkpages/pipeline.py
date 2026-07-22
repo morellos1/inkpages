@@ -43,7 +43,8 @@ def hydrate_free_platforms() -> None:
     Skeb first (its OAuth twitter_uid is the highest-value signal and it can
     mint pixiv references), then pixiv; anything either pass mints on the
     other platform is picked up by the next pipeline run."""
-    from . import discover_patreon, discover_pixiv, discover_skeb
+    from . import (discover_deviantart, discover_patreon, discover_pixiv,
+                   discover_skeb)
 
     sys.argv = ["discover_skeb", "--hydrate-known", "--top", "0"]
     discover_skeb.main()
@@ -51,6 +52,8 @@ def hydrate_free_platforms() -> None:
     discover_pixiv.main()
     sys.argv = ["discover_patreon", "--hydrate-known"]
     discover_patreon.main()
+    sys.argv = ["discover_deviantart", "--hydrate-known"]
+    discover_deviantart.main()
 
 
 def report_twitter_backlog() -> None:
