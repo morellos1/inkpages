@@ -66,8 +66,15 @@ def category_urls(client) -> list[str]:
 
 
 def harvest(conn, client, platforms, stats, top: int,
-            max_listings: int = 0) -> None:
+            max_listings: int = 0, exclude: list[str] | None = None) -> None:
     urls = category_urls(client)
+    if exclude:
+        # Root-prefix skip list (see docs/vgen-categories.md tiers) — e.g.
+        # --exclude-category vod-editing --exclude-category writing keeps
+        # video/audio/writing niches out of the walk entirely.
+        urls = [u for u in urls
+                if not any(u.split("/category/")[-1].startswith(p)
+                           for p in exclude)]
     if max_listings:
         urls = urls[:max_listings]
     print(f"vgen: {len(urls)} category listings to walk")
@@ -346,6 +353,10 @@ def main() -> None:
     parser.add_argument("--max-listings", type=int, default=0,
                         help="walk only the first N category listings "
                              "(sampling/testing; 0 = all)")
+    parser.add_argument("--exclude-category", action="append", default=[],
+                        help="skip listings whose category path starts with "
+                             "this root (repeatable; tiers in "
+                             "docs/vgen-categories.md)")
     parser.add_argument("--hydrate-known", action="store_true",
                         help="fetch profiles for vgen accounts never hydrated")
     parser.add_argument("--limit", type=int, default=1200,
@@ -360,7 +371,8 @@ def main() -> None:
         platforms = db.platform_ids(conn)
         if args.harvest:
             harvest(conn, client, platforms, stats, args.top,
-                    max_listings=args.max_listings)
+                    max_listings=args.max_listings,
+                    exclude=args.exclude_category)
         if args.hydrate_known:
             hydrate_known(conn, client, platforms, args.limit, stats)
     print("done:", dict(stats))

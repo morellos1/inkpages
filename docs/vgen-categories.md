@@ -1,0 +1,435 @@
+# VGen category tiers — most to least likely a regular digital artist
+
+Root categories of the 1,044 sampled listing pages, tiered by judgment;
+the count is how many of the current top-1000 surfaced on that category's
+listings (artists appear in several; per-artist storage caps at 6, so
+counts are floors). Generated 2026-07-22 from platform_stats.vgen_categories.
+
+## Tier 1 — Core digital illustration — certainly regular digital artists
+
+- character-illustrations · 263
+- chibi-illustrations · 173
+- character-reference-sheets · 73
+- custom-character-design · 68
+- custom-backgrounds · 51
+- creature-illustrations · 48
+- other-custom-illustrations · 46
+- custom-outfit-design · 40
+- custom-comics-creation · 35
+- custom-creature-design · 17
+- other-custom-original-design · 10
+- custom-dakimakura · 7
+- original-animatics-storyboards · 7
+- illustrations · 6
+- digital-illustration-advice · 4
+- creature-reference-sheets · 3
+- custom-book-cover · 3
+- other-reference-sheets · 2
+- custom-drawings · 1
+
+## Tier 2 — Illustration-adjacent (vtuber/avatar/emote art) — almost always digital artists
+
+- custom-pngtuber-giftuber-avatar · 76
+- vtuber-model-art · 57
+- custom-emotes · 48
+- custom-chibi-pngtuber-giftuber-avatar · 44
+- chibi-vtuber-model-art · 40
+- 2d-avatars · 26
+- custom-chat-stickers · 19
+- emotes-badges · 18
+- custom-vtuber-stream-props · 14
+- custom-subscriber-badges · 13
+- custom-vtuber-throwables · 11
+- creature-model-art · 10
+- other-custom-reactive-avatars · 10
+- custom-vtuber-debut-graphics · 10
+- custom-stream-avatar-sprites · 10
+- other-2d-vtuber-model-art · 8
+- custom-vtuber-model-add-ons · 7
+- custom-creature-pngtuber-giftuber-avatar · 6
+- custom-patterns · 6
+- custom-stickers · 5
+- other-custom-2d-vtuber-model-add-ons · 3
+- custom-acrylic-charms · 2
+- custom-posters-prints · 1
+
+## Tier 3 — Design & stream graphics — often artists, sometimes pure graphic designers
+
+- custom-logo-design · 48
+- custom-stream-overlays · 39
+- branding-graphics · 30
+- custom-video-thumbnail · 26
+- custom-stream-alerts · 24
+- custom-social-media-banner · 23
+- custom-stream-widgets · 8
+- misc · 22
+- custom-twitch-panels · 18
+- custom-stream-schedule · 14
+- stream-assets · 14
+- custom-mouse-cursors · 10
+- other-custom-stream-assets · 6
+- other-custom-vtuber-stream-assets · 6
+- custom-vtuber-model-reveal-graphics · 6
+- custom-subathon-donothon-graphics · 5
+- other-custom-branding · 5
+- physical-goods · 5
+- other-graphic-design · 4
+- custom-vtuber-model-showcase · 4
+- custom-cosplay-fashion · 3
+- custom-plushies · 2
+- other-custom-packaging-design · 2
+- custom-product-packaging-labels · 2
+- custom-community-event-graphics · 1
+- custom-stream-deck-icons · 1
+- custom-game-ui · 1
+- other-custom-traditional-arts-crafts · 1
+
+## Tier 4 — Animation / rigging / 3D — real craft, different discipline; overlaps with illustration
+
+- custom-minecraft-skins · 25
+- custom-stinger-transitions · 23
+- animation-videos · 22
+- vtuber-model-rigging · 20
+- original-anime-cartoons-animations · 19
+- emote-animation-animation-only · 16
+- custom-3d-vtuber-models-vrchat-avatars · 12
+- custom-logo-animation-animation-only · 11
+- chibi-vtuber-model-rigging · 11
+- 3d-models · 11
+- custom-vroid-model · 10
+- illustration-animation-animation-only · 9
+- other-animation-creation · 6
+- custom-chibi-vroid-model · 6
+- custom-3d-tracking-upgrades · 5
+- custom-3d-creatures-models · 5
+- other-image-animation-animation-only · 4
+- custom-3d-object-models · 4
+- custom-3d-worlds-environments · 4
+- other-custom-3d-character-models · 4
+- custom-vroid-model-asset · 4
+- 2d-tracking-upgrades · 2
+- custom-3d-vtuber-vrchat-assets · 2
+- other-custom-3d-vtuber-model-add-ons · 2
+- custom-game-mods · 2
+- custom-visual-effects · 2
+- creature-model-rigging · 1
+- other-custom-3d-models · 1
+- other-custom-vroid-models · 1
+- custom-stardew-valley-mods · 1
+- timing · 1
+- frame-by-frame-animation-advice · 1
+
+## Tier 5 — Video / audio / writing / advice / code — not visual artists
+
+- tiktok-shorts-reels-editing · 28
+- music-audio · 20
+- custom-trailers-teasers · 17
+- custom-music-videos · 17
+- full-mix · 16
+- custom-original-bgm-no-vocal · 16
+- vod-editing · 14
+- custom-cover-instrumental-no-vocal · 13
+- custom-intro-outro-videos · 10
+- custom-original-music-vocal · 10
+- mixing-mastering · 10
+- writing · 10
+- custom-sound-alerts-effects · 9
+- vocal-tuning · 6
+- custom-harmony-guides · 6
+- custom-website-design · 6
+- other-custom-video-editing · 5
+- custom-vocals · 5
+- other-audio-engineering · 5
+- lore-writing · 5
+- lyric-writing · 5
+- advice · 5
+- custom-discord-bots · 5
+- streaming-advice · 4
+- other-custom-music-creation · 3
+- custom-jingles-intros · 3
+- voice-over · 3
+- script-writing · 3
+- lyrics-translation · 3
+- career-advice · 3
+- marketing-advice · 3
+- other-custom-coding · 3
+- other-custom-templates · 3
+- other-custom-video-creation · 2
+- video-editing-advice · 2
+- audio-engineering-advice · 2
+- music-production-advice · 2
+- other-custom-voice-work · 2
+- other-creative-writing · 2
+- personal-advice · 2
+- profile-setup · 2
+- story-writing · 1
+- other-custom-writing · 1
+- translation · 1
+- custom-slideshow-presentation · 1
+
+
+## Only tier 5 (video/audio/writing/advice) — 143 artists
+
+No visual-art listing at all; clear candidates for exclusion or the Demoted page:
+
+- Sampai · 188 reviews · tiktok-shorts-reels-editing
+- jubeisilatori · 172 reviews · custom-original-bgm-no-vocal, custom-original-music-vocal, custom-sound-alerts-effects, music-audio, other-custom-music-creation
+- shishimura · 154 reviews · custom-vocals, full-mix, other-audio-engineering
+- sonara · 141 reviews · custom-original-bgm-no-vocal, custom-original-music-vocal, custom-sound-alerts-effects
+- jotace · 138 reviews · tiktok-shorts-reels-editing, vod-editing
+- CrescentiaRin · 137 reviews · tiktok-shorts-reels-editing
+- yuseiyuka · 130 reviews · custom-cover-instrumental-no-vocal, custom-original-bgm-no-vocal, custom-original-music-vocal, custom-sound-alerts-effects, music-audio
+- lostboys · 130 reviews · custom-cover-instrumental-no-vocal
+- flonnya · 125 reviews · vod-editing
+- Damha · 117 reviews · full-mix
+- ShiOtomeKa · 116 reviews · vod-editing
+- kenforce · 116 reviews · mixing-mastering, music-audio
+- weetogg · 108 reviews · tiktok-shorts-reels-editing
+- EliiElyne · 96 reviews · custom-vocals, lyric-writing, music-audio, vocal-tuning
+- nokata · 92 reviews · custom-intro-outro-videos
+- anggaweka · 91 reviews · custom-cover-instrumental-no-vocal, full-mix, music-audio
+- VelRafael · 89 reviews · custom-cover-instrumental-no-vocal, mixing-mastering
+- bonnniex3 · 88 reviews · tiktok-shorts-reels-editing
+- matakuwu · 81 reviews · tiktok-shorts-reels-editing
+- adamo_s2 · 78 reviews · custom-cover-instrumental-no-vocal, full-mix, music-audio
+- 0uter · 76 reviews · full-mix, music-audio
+- kurongeng · 71 reviews · mixing-mastering, music-audio
+- shionhipon · 67 reviews · custom-discord-bots
+- danihadimusic · 64 reviews · full-mix
+- HarryVini · 63 reviews · custom-original-bgm-no-vocal, custom-original-music-vocal, custom-sound-alerts-effects, lyric-writing, music-audio
+- Chiisuri · 62 reviews · custom-vocals
+- TomoAries · 60 reviews · custom-vocals, music-production-advice
+- kamiclipsYT · 59 reviews · tiktok-shorts-reels-editing
+- melodiastudio · 59 reviews · custom-original-bgm-no-vocal
+- jaybevt · 58 reviews · tiktok-shorts-reels-editing
+- kusabidelacroix · 58 reviews · custom-cover-instrumental-no-vocal, music-audio
+- noble18th · 57 reviews · tiktok-shorts-reels-editing
+- alunayori · 57 reviews · custom-original-bgm-no-vocal, music-audio
+- rinhime · 56 reviews · custom-harmony-guides
+- KumoKai · 55 reviews · tiktok-shorts-reels-editing
+- JerFlow · 53 reviews · full-mix
+- lalazhu · 53 reviews · full-mix, mixing-mastering
+- valdimire · 52 reviews · tiktok-shorts-reels-editing
+- rsakumsc · 50 reviews · custom-original-bgm-no-vocal
+- dakusen · 50 reviews · tiktok-shorts-reels-editing
+- dariasuzu · 49 reviews · full-mix
+- hanasakiyunarin · 48 reviews · custom-music-videos
+- rorekk · 48 reviews · full-mix, music-audio
+- erusha · 45 reviews · translation, voice-over
+- rumiakari · 43 reviews · custom-original-bgm-no-vocal, music-audio
+- KanonSings · 43 reviews · other-audio-engineering, vocal-tuning
+- rotlia · 43 reviews · advice, marketing-advice
+- cancncn · 42 reviews · custom-trailers-teasers, full-mix, music-audio
+- Teji_Kuraibu · 42 reviews · custom-original-bgm-no-vocal, music-audio
+- Tomoe · 42 reviews · custom-trailers-teasers
+- vhkry · 41 reviews · custom-music-videos
+- Xen · 41 reviews · vod-editing
+- fajuun · 40 reviews · writing
+- narzum · 40 reviews · vocal-tuning
+- kryko_demon · 39 reviews · full-mix, music-audio
+- Mijuelth · 38 reviews · custom-trailers-teasers
+- gr4ndsoulfreak · 38 reviews · tiktok-shorts-reels-editing
+- JTR_VT · 38 reviews · tiktok-shorts-reels-editing
+- sera-phina · 37 reviews · custom-original-bgm-no-vocal, custom-original-music-vocal, custom-sound-alerts-effects
+- CammyCallisto · 37 reviews · tiktok-shorts-reels-editing, vod-editing
+- cranthir · 37 reviews · story-writing, writing
+- CelineWhitetail · 36 reviews · script-writing
+- ryantheguitarist · 35 reviews · custom-cover-instrumental-no-vocal, music-audio
+- cynfrandell · 34 reviews · custom-trailers-teasers
+- kuwanano · 34 reviews · lyric-writing
+- PyroP4N · 34 reviews · full-mix
+- RahuraComposer · 34 reviews · custom-original-bgm-no-vocal
+- onidarin_ · 33 reviews · custom-intro-outro-videos
+- Colichemarde · 33 reviews · vod-editing
+- jeyraident · 33 reviews · tiktok-shorts-reels-editing, video-editing-advice
+- kanalia_s · 33 reviews · custom-harmony-guides, lyric-writing, mixing-mastering, vocal-tuning
+- eggbyte · 32 reviews · custom-website-design, other-custom-coding
+- Minekyo · 32 reviews · tiktok-shorts-reels-editing
+- capuchi · 31 reviews · full-mix
+- liure · 31 reviews · other-audio-engineering
+- eruukurage · 30 reviews · custom-harmony-guides
+- rayquazamv · 30 reviews · custom-music-videos, custom-trailers-teasers
+- fourty · 29 reviews · vod-editing
+- bykathya · 29 reviews · custom-original-bgm-no-vocal, custom-original-music-vocal, custom-sound-alerts-effects
+- KayenVT · 29 reviews · tiktok-shorts-reels-editing
+- Reikosaka_ · 29 reviews · custom-cover-instrumental-no-vocal, custom-original-music-vocal, full-mix
+- KuroTrash_Art · 29 reviews · other-custom-voice-work
+- Saladartist13 · 29 reviews · audio-engineering-advice
+- witchy_tea_cup · 28 reviews · custom-vocals
+- ItsaMeJay · 28 reviews · custom-sound-alerts-effects, mixing-mastering, other-audio-engineering
+- KAGEMORIEru · 28 reviews · custom-original-bgm-no-vocal, custom-sound-alerts-effects, music-audio
+- aurorarosalia · 28 reviews · vod-editing
+- shotgunrunner_0 · 27 reviews · custom-original-bgm-no-vocal
+- Cyromusic · 27 reviews · custom-cover-instrumental-no-vocal, custom-original-music-vocal
+- shidostrife · 27 reviews · custom-cover-instrumental-no-vocal
+- Achziil · 27 reviews · custom-trailers-teasers
+- AVIP · 27 reviews · custom-music-videos, custom-trailers-teasers
+- foxofspades · 27 reviews · lore-writing, script-writing
+- asakifox · 26 reviews · other-custom-voice-work
+- kukifish · 26 reviews · vod-editing
+- awchicks · 26 reviews · custom-music-videos
+- yofroggo · 25 reviews · tiktok-shorts-reels-editing
+- Rayshii · 25 reviews · advice, streaming-advice, tiktok-shorts-reels-editing
+- Saccharinne · 25 reviews · custom-harmony-guides
+- fiddlefreakk · 25 reviews · lore-writing, script-writing
+- chromehui · 25 reviews · custom-website-design
+- wawa_kero · 25 reviews · custom-website-design
+- AllMightStudio · 25 reviews · audio-engineering-advice, custom-cover-instrumental-no-vocal, mixing-mastering
+- Sammilicious · 25 reviews · full-mix, lyrics-translation
+- bladiesbakery · 25 reviews · other-custom-video-editing
+- dooubiimusic · 25 reviews · custom-original-bgm-no-vocal, music-audio
+- andou · 25 reviews · voice-over
+- KimonoGamer · 24 reviews · other-custom-video-editing
+- PleasedbyViolet · 24 reviews · voice-over
+- kikuchi · 24 reviews · custom-website-design
+- showy · 23 reviews · custom-discord-bots
+- bleepmusic · 23 reviews · custom-jingles-intros, music-audio, music-production-advice
+- Cirque · 23 reviews · mixing-mastering
+- Eslejer · 22 reviews · other-custom-video-editing
+- safail · 22 reviews · vocal-tuning
+- solosvtuber · 22 reviews · lyrics-translation, mixing-mastering
+- ScyllaLavenrose · 22 reviews · custom-harmony-guides
+- wyldosis · 22 reviews · advice, streaming-advice
+- Yusihaya · 22 reviews · custom-trailers-teasers, lore-writing
+- Remoxe · 21 reviews · vod-editing
+- Jim18 · 21 reviews · mixing-mastering, vocal-tuning
+- wormprint · 21 reviews · other-creative-writing, writing
+- YonakaP · 21 reviews · custom-cover-instrumental-no-vocal
+- StationJess · 20 reviews · custom-music-videos
+- Esseph · 20 reviews · custom-original-bgm-no-vocal
+- UndreamedPanic · 20 reviews · custom-original-music-vocal
+- rab_eye · 20 reviews · custom-jingles-intros
+- Alteus · 20 reviews · career-advice
+- Toxena · 20 reviews · personal-advice, tiktok-shorts-reels-editing, vod-editing
+- kinsiel · 20 reviews · tiktok-shorts-reels-editing
+- PocongWorks · 19 reviews · custom-music-videos
+- fiz_fuzzy · 19 reviews · tiktok-shorts-reels-editing, vod-editing
+- AimaruVee · 19 reviews · other-custom-writing
+- Vegalyrical · 19 reviews · lyrics-translation
+- avaalie · 18 reviews · custom-music-videos
+- Lunesonthemoon · 18 reviews · custom-music-videos
+- Soramare · 18 reviews · custom-intro-outro-videos
+- MacchiVS · 18 reviews · tiktok-shorts-reels-editing
+- JerryBlob · 18 reviews · tiktok-shorts-reels-editing
+- nearsgarden · 18 reviews · other-audio-engineering
+- AmilimandReisth · 18 reviews · custom-trailers-teasers
+- fishnuggets · 18 reviews · custom-cover-instrumental-no-vocal, other-custom-music-creation
+- skirmish · 18 reviews · other-custom-music-creation
+
+
+## Only tier 4 (animation/rigging/3D, no 2D listing) — 112 artists
+
+Real visual craft but a different discipline — your call whether they belong:
+
+- Karutaproject · 411 reviews · custom-intro-outro-videos, custom-stinger-transitions
+- kibawoo · 242 reviews · emote-animation-animation-only
+- viicccii1 · 186 reviews · vtuber-model-rigging
+- cheu · 150 reviews · original-anime-cartoons-animations
+- bliss · 149 reviews · custom-minecraft-skins
+- Henster · 118 reviews · custom-minecraft-skins
+- Orion · 117 reviews · emote-animation-animation-only
+- wcanterburybell · 110 reviews · emote-animation-animation-only
+- ClezArts · 108 reviews · custom-logo-animation-animation-only, custom-music-videos, custom-trailers-teasers
+- AsuzuHikari · 107 reviews · original-anime-cartoons-animations
+- sleepystufful · 101 reviews · custom-minecraft-skins
+- orikuna · 97 reviews · custom-minecraft-skins
+- batfluffs · 95 reviews · 3d-models, other-custom-3d-character-models
+- kcpasin · 90 reviews · illustration-animation-animation-only
+- monakers · 88 reviews · animation-videos, tiktok-shorts-reels-editing, vod-editing
+- karrot_b_0 · 86 reviews · original-anime-cartoons-animations
+- EgguNebu · 84 reviews · custom-3d-object-models
+- Yoruma_art · 84 reviews · chibi-vtuber-model-rigging, other-custom-video-creation
+- SynaBytez · 79 reviews · custom-minecraft-skins
+- AxelCode · 77 reviews · custom-3d-vtuber-models-vrchat-avatars, custom-3d-vtuber-vrchat-assets, other-custom-3d-vtuber-model-add-ons
+- eelbeats · 77 reviews · emote-animation-animation-only
+- nyuna · 77 reviews · illustration-animation-animation-only
+- MayaVtuber · 76 reviews · original-anime-cartoons-animations
+- Yacu · 73 reviews · custom-3d-worlds-environments
+- Jannzky · 72 reviews · illustration-animation-animation-only
+- Polos · 70 reviews · animation-videos, vtuber-model-rigging
+- josusan · 70 reviews · animation-videos, custom-intro-outro-videos, custom-stinger-transitions
+- LUK4 · 56 reviews · custom-3d-tracking-upgrades, custom-chibi-vroid-model
+- liushui · 56 reviews · vtuber-model-rigging
+- Coy_Jellyfish · 55 reviews · vtuber-model-rigging
+- momodaisuki · 55 reviews · custom-vroid-model
+- KRINGG · 55 reviews · custom-music-videos, custom-stinger-transitions, custom-trailers-teasers
+- orn_nok · 55 reviews · emote-animation-animation-only
+- Dystoria · 54 reviews · custom-game-mods
+- whimziecat · 54 reviews · 2d-tracking-upgrades, chibi-vtuber-model-rigging
+- plushette · 53 reviews · 3d-models, other-custom-3d-character-models
+- rinrinriiiinn · 52 reviews · chibi-vtuber-model-rigging
+- SilverCS · 50 reviews · custom-harmony-guides, timing
+- SaltyPhoene · 48 reviews · 3d-models, custom-3d-creatures-models
+- maleficxm · 47 reviews · custom-minecraft-skins
+- Kwuood · 46 reviews · other-animation-creation
+- panekopanko · 46 reviews · custom-3d-vtuber-models-vrchat-avatars
+- glitter_azul · 45 reviews · custom-chibi-vroid-model, custom-vroid-model-asset
+- Buvvvles · 45 reviews · custom-stinger-transitions
+- DianaBellHERE · 45 reviews · custom-chibi-vroid-model, custom-stinger-transitions
+- Pomo · 44 reviews · custom-stinger-transitions
+- ManaModels · 44 reviews · custom-vroid-model
+- Yellowllich · 43 reviews · 3d-models, custom-vroid-model
+- jessair · 42 reviews · custom-vroid-model
+- ocuuda · 42 reviews · custom-3d-tracking-upgrades
+- rengginangasoy · 42 reviews · 3d-models, custom-chibi-vroid-model
+- ViperLine · 41 reviews · custom-3d-vtuber-models-vrchat-avatars
+- rhitter · 41 reviews · custom-stinger-transitions, custom-trailers-teasers
+- gameboiGeorge · 40 reviews · custom-3d-vtuber-models-vrchat-avatars
+- Amoriel · 39 reviews · 3d-models, custom-3d-tracking-upgrades, custom-3d-vtuber-models-vrchat-avatars
+- symphonyowu · 38 reviews · custom-3d-vtuber-models-vrchat-avatars
+- chianyakamivt · 38 reviews · vtuber-model-rigging
+- IyoSpriggan · 37 reviews · animation-videos, vtuber-model-rigging
+- InkyFrosty · 37 reviews · original-anime-cartoons-animations
+- ottagutz · 35 reviews · emote-animation-animation-only
+- crowmaru · 34 reviews · original-anime-cartoons-animations
+- kohaiiyo · 34 reviews · custom-minecraft-skins
+- Numanne · 34 reviews · original-anime-cartoons-animations
+- cinnamoeri · 33 reviews · chibi-vtuber-model-rigging, vtuber-model-rigging
+- Kotarq98 · 33 reviews · 3d-models, custom-3d-vtuber-models-vrchat-avatars
+- Antorcha · 31 reviews · custom-3d-worlds-environments
+- TuckeredArt · 31 reviews · custom-3d-creatures-models
+- luna_chocomilk · 30 reviews · emote-animation-animation-only
+- sarunaa · 30 reviews · custom-minecraft-skins
+- lyroid · 29 reviews · 3d-models, custom-3d-worlds-environments
+- cokelateh · 29 reviews · custom-vroid-model-asset, other-custom-vroid-models
+- deluluStudio · 29 reviews · vtuber-model-rigging
+- cakepawzz · 28 reviews · emote-animation-animation-only
+- Boorislaper · 28 reviews · other-custom-3d-character-models
+- NaoLive2d · 27 reviews · chibi-vtuber-model-rigging
+- Makkary · 26 reviews · emote-animation-animation-only
+- Kindvirus · 26 reviews · illustration-animation-animation-only
+- shiroikumo · 26 reviews · original-anime-cartoons-animations
+- Louberries · 25 reviews · custom-3d-vtuber-models-vrchat-avatars
+- dileguelive2d · 25 reviews · chibi-vtuber-model-rigging, vtuber-model-rigging
+- TomorukaMR · 24 reviews · animation-videos
+- UberTheMeh · 24 reviews · custom-3d-object-models
+- wikiRodrigos · 24 reviews · custom-3d-vtuber-models-vrchat-avatars
+- FuraRoss · 23 reviews · original-anime-cartoons-animations
+- 832aniwork · 22 reviews · custom-trailers-teasers, custom-visual-effects
+- R4ven · 22 reviews · custom-3d-object-models
+- leafy · 22 reviews · custom-logo-animation-animation-only
+- maxasada · 22 reviews · vtuber-model-rigging
+- MaxLive2D · 21 reviews · vtuber-model-rigging
+- himawan_fm · 21 reviews · emote-animation-animation-only, original-anime-cartoons-animations
+- usu4u · 21 reviews · original-anime-cartoons-animations
+- rainulan30 · 21 reviews · custom-stinger-transitions
+- HaiPhan · 21 reviews · other-custom-3d-character-models
+- Mouochi · 21 reviews · custom-vroid-model
+- Nynbug · 20 reviews · custom-logo-animation-animation-only
+- kkiureii · 20 reviews · custom-logo-animation-animation-only, custom-stinger-transitions
+- darknightsparrow · 20 reviews · other-image-animation-animation-only
+- Nebula_Queen · 20 reviews · other-image-animation-animation-only
+- RainuRaiju · 20 reviews · custom-vroid-model
+- vincentsnow_art · 19 reviews · other-custom-3d-models, other-custom-3d-vtuber-model-add-ons
+- sliceofi · 19 reviews · illustration-animation-animation-only
+- talism4niac · 19 reviews · custom-3d-vtuber-models-vrchat-avatars
+- ClodCakes · 19 reviews · other-image-animation-animation-only
+- kaerupoota · 19 reviews · emote-animation-animation-only
+- miaru3d · 18 reviews · 3d-models, custom-3d-vtuber-models-vrchat-avatars
+- falcontrace · 18 reviews · custom-3d-vtuber-models-vrchat-avatars
+- Kiray_Shady_Shop · 18 reviews · other-animation-creation
+- Amegglia · 18 reviews · custom-vroid-model, custom-vroid-model-asset
+- angelvayuu · 18 reviews · custom-3d-tracking-upgrades, custom-3d-vtuber-vrchat-assets, custom-3d-worlds-environments
+- ArisuKom · 17 reviews · custom-3d-creatures-models, custom-vroid-model
+- rubiirosie · 17 reviews · vtuber-model-rigging
+- acseldwarf · 17 reviews · vtuber-model-rigging

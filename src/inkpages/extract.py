@@ -82,7 +82,8 @@ BSKY_NSFW_SELF_LABELS = {"porn", "sexual", "nudity"}
 # (the x.gd bug: 152 of them). pixiv.me is a per-user redirect alias, not a
 # generic shortener, but resolving it yields the artist's real pixiv profile.
 SHORTENER_DOMAINS = ("t.co", "bit.ly", "tinyurl.com", "goo.gl", "x.gd",
-                     "onl.tw", "onl.sc", "buly.kr", "pixiv.me")
+                     "onl.tw", "onl.sc", "buly.kr", "pixiv.me",
+                     "vm.tiktok.com", "vt.tiktok.com")
 
 # Lookbehind keeps host suffixes from matching: artist.co/x is not t.co/x,
 # newsonl.tw/x is not onl.tw/x.
@@ -328,6 +329,10 @@ _LINK_PATTERNS: list[tuple[str, re.Pattern]] = [
     ("gumroad", re.compile(r"(?<![\w.-])(?P<handle>[A-Za-z0-9]+)\.gumroad\.com", re.I)),
     ("inprnt", re.compile(r"inprnt\.com/gallery/(?P<handle>\w+)", re.I)),
     ("instagram", re.compile(r"instagram\.com/(?!p/|reels?\b|stories\b|explore\b|accounts\b|direct\b|tv\b|share\b|about\b|legal\b|developer\b)(?P<handle>[A-Za-z0-9._]{1,30})", re.I)),
+    # Display-only like instagram; the @ prefix keeps reserved paths
+    # (discover/tag/music/live…) out on its own. vm/vt.tiktok.com share
+    # links are shorteners, resolved before extraction.
+    ("tiktok", re.compile(r"tiktok\.com/@(?P<handle>[A-Za-z0-9_.]{2,24})", re.I)),
     ("mihuashi", re.compile(r"mihuashi\.com/(?:users|painters)/(?P<handle>[^/\s?#\"']+)", re.I)),
     ("youtube", re.compile(r"youtube\.com/@(?P<handle>[\w.-]+)", re.I)),
     ("youtube", re.compile(r"youtube\.com/(?:c/|user/)(?P<handle>[\w.-]+)", re.I)),
@@ -392,7 +397,7 @@ _PLATFORM_DOMAINS = {
     "weibo.com", "weibo.cn", "facebook.com", "fb.com",
     "artstation.com", "patreon.com", "ko-fi.com", "vgen.co", "cara.app",
     "xfolio.jp", "deviantart.com", "tumblr.com", "gumroad.com", "inprnt.com",
-    "instagram.com", "linktr.ee", "tr.ee", "carrd.co", "potofu.me", "lit.link",
+    "instagram.com", "tiktok.com", "linktr.ee", "tr.ee", "carrd.co", "potofu.me", "lit.link",
     "misskey.io", "misskey.design", "misskey.art",
     "mihuashi.com", "youtube.com", "youtu.be", "discord.gg", "discord.com",
     "discordapp.com", "t.me", "telegram.me", "twitch.tv",
