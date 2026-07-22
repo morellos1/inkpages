@@ -38,6 +38,27 @@ now exists (caps NOT-yet-known creators per harvest, best chart position
 first; already-known creators always refresh) — use it when the user gives a
 number.
 
+Follow-up session additions:
+- **Graphtreon stats land in `platform_stats`** (paid_members,
+  monthly_earnings_usd where public, graphtreon_category/metric/rank) and
+  `followers_count` = paid members (sort + prominence analog). Stat cells
+  PRECEDE the creator anchor on every list template — the rank template's
+  visual order lies; a follow-mode misassociation once shifted every rank
+  page's stats by one row. Graphtreon's taxonomy is flat: no sub-tags inside
+  drawing-painting; siblings (3d-printing, crafts-diy, cosplay, photography)
+  can be added to `CATEGORIES` if wanted. Patreon page "topics" are mostly
+  empty; per-tier patron_counts exist in page HTML but only as a lower bound.
+- **Patreon reserved paths fixed** (`/creation?hid=…` post permalinks,
+  `/collection/…`, hc, settings etc. matched as creator handles — 4 junk
+  accounts, 10 edges purged; pattern now excludes them all).
+- **Bare `handle.bsky.social` URLs parse as bluesky** (were website
+  accounts); bsky.social in `_PLATFORM_DOMAINS`.
+- **Manual add-account on artist pages** (`/artist/<id>/add_account`): paste
+  any profile URL → parsed with the normal extraction patterns → attaches at
+  `added_by='human'` (pipeline never closes those). Owned-by-another-artist
+  pastes get pointed at the Connections merge flow instead.
+  `discovered_via='manual'` has a SOURCE_META entry.
+
 ## Previous state (2026-07-21, post bugfix/optimization pass)
 
 Pre-discovery bugfix pass (commit 6c4ecb2): **t.co resolution was silently

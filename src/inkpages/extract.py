@@ -247,12 +247,21 @@ _LINK_PATTERNS: list[tuple[str, re.Pattern]] = [
         r"(?P<handle>[A-Za-z0-9_]{1,15})\b", re.I)),
     ("bluesky", re.compile(r"bsky\.app/profile/(?P<native_id>did:(?:plc|web):[A-Za-z0-9._%:-]+)", re.I)),
     ("bluesky", re.compile(r"bsky\.app/profile/(?!did:)(?P<handle>[A-Za-z0-9.-]+)", re.I)),
+    # Bare handle-domains (loish.bsky.social) — bios link them without bsky.app.
+    ("bluesky", re.compile(r"(?<![\w.-])(?P<handle>[A-Za-z0-9][A-Za-z0-9-]*\.bsky\.social)\b", re.I)),
     ("pixiv", re.compile(r"pixiv\.net/(?:en/)?(?:users/|member\.php\?id=)(?P<native_id>\d+)", re.I)),
     ("skeb", re.compile(r"skeb\.jp/@(?P<handle>[\w.-]+)", re.I)),
     ("artstation", re.compile(r"artstation\.com/(?!marketplace\b|learning\b|artwork\b|blogs\b|prints\b|challenges\b|jobs\b)(?P<handle>[A-Za-z0-9_-]+)", re.I)),
     # Patreon uses both /c/ and the newer /cw/ as path prefixes before the
-    # creator name — neither is ever the handle itself.
-    ("patreon", re.compile(r"patreon\.com/(?:c/|cw/)?(?!posts\b|join\b|checkout\b|user\b|c\b|cw\b)(?P<handle>[A-Za-z0-9_-]+)", re.I)),
+    # creator name — neither is ever the handle itself. Reserved paths like
+    # /creation?hid=… (post permalinks) and /collection/… are page types,
+    # not creators.
+    ("patreon", re.compile(
+        r"patreon\.com/(?:c/|cw/)?(?!posts\b|join\b|checkout\b|user\b|c\b|cw\b"
+        r"|creation\b|collections?\b|home\b|login\b|signup\b|search\b|messages\b"
+        r"|settings\b|explore\b|about\b|apps\b|pricing\b|policy\b|policies\b"
+        r"|brand\b|hc\b|products?\b|create\b|dashboard\b|mobile\b|bePatron\b"
+        r"|oauth2\b|m\b|api\b)(?P<handle>[A-Za-z0-9_-]+)", re.I)),
     ("kofi", re.compile(r"ko-fi\.com/(?P<handle>[A-Za-z0-9_]+)", re.I)),
     ("vgen", re.compile(r"vgen\.co/(?P<handle>[A-Za-z0-9_-]+)", re.I)),
     ("cara", re.compile(r"cara\.app/(?P<handle>[A-Za-z0-9._-]+)", re.I)),
@@ -326,7 +335,7 @@ _GENERIC_URL = re.compile(r"(?:https?://|www\.)[A-Za-z0-9.\-_~:/?#@!$&*+,;=%']+"
 _DOMAIN_OF = re.compile(r"^(?:https?://)?(?:www\.)?([A-Za-z0-9.-]+)", re.I)
 
 _PLATFORM_DOMAINS = {
-    "x.com", "twitter.com", "bsky.app", "pixiv.net", "skeb.jp",
+    "x.com", "twitter.com", "bsky.app", "bsky.social", "pixiv.net", "skeb.jp",
     "weibo.com", "weibo.cn", "facebook.com", "fb.com",
     "artstation.com", "patreon.com", "ko-fi.com", "vgen.co", "cara.app",
     "xfolio.jp", "deviantart.com", "tumblr.com", "gumroad.com", "inprnt.com",

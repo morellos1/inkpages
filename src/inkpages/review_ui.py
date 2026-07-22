@@ -351,6 +351,14 @@ document.querySelectorAll('.bio').forEach(function (box) {
        <button class="no">detach</button></form></td>
 </tr>{% endfor %}</table>
 
+{% if request.args.get('msg') %}<p class="card" style="border-left:3px solid {{ '#2e7d32' if request.args.get('ok') else '#c62828' }}">{{ request.args.get('msg') }}</p>{% endif %}
+<form class="inline" method="post" action="{{ url_for('add_account', artist_id=artist.id) }}" style="margin:8px 0">{{ csrf() }}
+  <input type="url" name="url" size="52" required
+         placeholder="paste a profile URL to add — e.g. https://x.com/handle">
+  <button class="ok">Add account</button>
+  <span class="muted">attaches as a human decision (clustering will never undo it); wrong paste → detach</span>
+</form>
+
 <h2>Connections</h2>
 <p class="muted">Related links never merge on their own. An <b>unresolved same-person
 claim</b> means the evidence says same person but clustering could not act alone
@@ -967,6 +975,10 @@ SOURCE_META = {
         "Accounts listed on an artist's own Linktree / Carrd / potofu / "
         "lit.link page — treated exactly like bio links.",
         ["joins via clustering only"]),
+    "manual": ("Added by hand", False, "free",
+        "An account a human attached from the artist page (pasted profile "
+        "URL). Human decisions are never undone by the pipeline.",
+        ["human decision"]),
     "bio_mention": ("@-mentioned in a bio", False, "free",
         "Someone @-mentioned this account. Mostly friends and clients, so it "
         "only counts when the artist explicitly marks it as their own alt "
@@ -1192,6 +1204,58 @@ def confirm_connection(artist_id, account_id):
             {"acc": account_id, "ar": artist_id})
         conn.commit()
     return redirect(url_for("artist", artist_id=artist_id))
+
+
+@app.route("/artist/<int:artist_id>/add_account", methods=["POST"])
+def add_account(artist_id):
+    """Manually attach an account from a pasted profile URL. The URL is parsed
+    with the same extraction patterns as bios, so platform + handle are always
+    canonical; unknown domains become a personal-website account. A human add
+    is sacred: added_by='human', and the pipeline never closes those."""
+    from .extract import find_platform_links, find_website_links
+
+    url = (request.form.get("url") or "").strip()
+    links = find_platform_links(url) or find_website_links(url)
+
+    def back(msg, ok=False):
+        return redirect(url_for("artist", artist_id=artist_id, msg=msg,
+                                ok=1 if ok else None))
+
+    if not links:
+        return back("could not parse that URL — no platform pattern matched")
+    link = links[0]
+    with db.connect() as conn, conn.cursor() as cur:
+        platform_id = db.platform_ids(conn).get(link.platform)
+        if platform_id is None:
+            return back(f"platform {link.platform} is not seeded")
+        account_id = db.get_or_create_account(
+            conn, platform_id, native_id=link.native_id,
+            handle=link.handle or link.native_id, profile_url=link.url,
+            discovered_via="manual",
+            discovery_details={"artist_id": artist_id, "via": "review-ui"},
+        )
+        cur.execute("""select aa.artist_id, ar.public_slug from artist_accounts aa
+                       join artists ar on ar.id = aa.artist_id
+                       where aa.account_id = %s and aa.removed_at is null""",
+                    (account_id,))
+        row = cur.fetchone()
+        if row and row[0] == artist_id:
+            conn.commit()
+            return back(f"{link.platform}:{link.handle or link.native_id} "
+                        "is already a member of this artist", ok=True)
+        if row:
+            conn.commit()
+            return back(f"{link.platform}:{link.handle or link.native_id} already "
+                        f"belongs to /{row[1]} — merge via its Connections row "
+                        "instead of adding it here")
+        cur.execute("""insert into artist_accounts (artist_id, account_id, confidence, added_by)
+                       values (%s, %s, 'strong', 'human')""", (artist_id, account_id))
+        cur.execute("""insert into artist_events (artist_id, event, actor, details)
+                       values (%s, 'account_added', 'admin:review-ui', %s)""",
+                    (artist_id, json.dumps({"account_id": account_id,
+                                            "reason": "manual_add", "url": url})))
+        conn.commit()
+    return back(f"added {link.platform}:{link.handle or link.native_id}", ok=True)
 
 
 @app.route("/artist/<int:artist_id>/suppress", methods=["POST"])

@@ -59,8 +59,37 @@ _RESIDUAL_ESC = re.compile(r"\\u([0-9a-fA-F]{4})")
 _JSON_LD = re.compile(r'<script[^>]*type="application/ld\+json"[^>]*>\s*(.*?)\s*</script>', re.S)
 
 
+_STAT_OR_ANCHOR = re.compile(
+    r'(?P<stat>earnings-value|paid-members-value)">\s*\$?(?P<val>-?[\d,]+)'
+    r'|href="/creator/(?P<vanity>[A-Za-z0-9_.~-]+)"')
+_STAT_KEYS = {"earnings-value": "monthly_earnings_usd",
+              "paid-members-value": "paid_members"}
+
+
+def _row_stats(page_html: str) -> dict[str, dict]:
+    """vanity -> {paid_members, monthly_earnings_usd} where the list shows
+    them. On every list template the stat cells precede the row's creator
+    anchor in document order (verified against rank-1 rows on both the
+    category-rank and earners templates), so stats buffer until the next
+    anchor claims them."""
+    out: dict[str, dict] = {}
+    pending: dict = {}
+    for m in _STAT_OR_ANCHOR.finditer(page_html):
+        if m.group("vanity"):
+            row = out.setdefault(m.group("vanity"), {})
+            if pending:
+                row.update(pending)
+                pending = {}
+        else:
+            value = int(m.group("val").replace(",", ""))
+            if value >= 0:
+                pending.setdefault(_STAT_KEYS[m.group("stat")], value)
+    return out
+
+
 def parse_ranking(page_html: str):
-    """Yield (rank, vanity, campaign_id, name, blurb) per creator row."""
+    """Yield (rank, vanity, campaign_id, name, blurb, stats) per creator row."""
+    stats = _row_stats(page_html)
     seen: set[str] = set()
     for block in _ROW_SPLIT.split(page_html)[1:]:
         vanity = _ROW_VANITY.search(block)
@@ -74,7 +103,8 @@ def parse_ranking(page_html: str):
                vanity.group(1),
                campaign.group(1) if campaign else None,
                htmllib.unescape(name.group(1)) if name else None,
-               htmllib.unescape(_TAGS.sub("", blurb.group(1))) if blurb else None)
+               htmllib.unescape(_TAGS.sub("", blurb.group(1))) if blurb else None,
+               stats.get(vanity.group(1), {}))
 
 
 def harvest(conn, client, platforms, stats, max_new: int = 0) -> None:
@@ -91,14 +121,16 @@ def harvest(conn, client, platforms, stats, max_new: int = 0) -> None:
                 stats[f"list_failed_{metric}/{category}"] += 1
                 continue
             stats["lists_fetched"] += 1
-            for rank, vanity, campaign, name, blurb in parse_ranking(resp.text):
+            for rank, vanity, campaign, name, blurb, row_stats in parse_ranking(resp.text):
                 row = creators.setdefault(vanity, {
                     "vanity": vanity, "campaign": campaign, "name": name,
                     "blurb": blurb, "metric": metric, "category": category,
-                    "rank": rank, "adult": False,
+                    "rank": rank, "adult": False, "stats": {},
                 })
                 row["campaign"] = row["campaign"] or campaign
                 row["adult"] = row["adult"] or category.startswith("adult-")
+                for key, value in row_stats.items():
+                    row["stats"][key] = max(row["stats"].get(key, 0), value)
     db.log_api_usage(conn, "graphtreon", "top-lists", stats["lists_fetched"], 0)
     print(f"graphtreon: {len(creators)} distinct creators "
           f"across {stats['lists_fetched']} lists")
@@ -129,6 +161,9 @@ def harvest(conn, client, platforms, stats, max_new: int = 0) -> None:
             handle=row["vanity"],
             display_name=row["name"],
             profile_url=f"https://www.patreon.com/{row['vanity']}",
+            # Paid members is Patreon's public member count — the closest
+            # follower analog, drives sorting and the prominence guard.
+            followers_count=row["stats"].get("paid_members"),
             discovered_via="patreon_ranking",
             discovery_details={"source": "graphtreon", "metric": row["metric"],
                                "category": row["category"], "rank": row["rank"]},
@@ -137,6 +172,12 @@ def harvest(conn, client, platforms, stats, max_new: int = 0) -> None:
         if db.is_suppressed(conn, account_id):
             stats["skipped_suppressed"] += 1
             continue
+        db.set_platform_stats(conn, account_id, {
+            "graphtreon_category": row["category"],
+            "graphtreon_metric": row["metric"],
+            "graphtreon_rank": row["rank"],
+            **row["stats"],
+        })
         # Ranking-row snapshot: provenance for the adult flag and any
         # attestation in the blurb. Blurbs are truncated, so no link
         # extraction here — the hydration pass reads the full page.
