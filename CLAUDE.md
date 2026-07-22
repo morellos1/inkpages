@@ -10,7 +10,29 @@ is displayed strictly as the artist's own attestation, never our classification.
 Full brief: `~/Desktop/artist-directory-brief.md` (outside the repo). Design
 rationale: `docs/schema.md` and `docs/pipeline.md`.
 
-## Current state (2026-07-21, post bugfix/optimization pass)
+## Current state (2026-07-22, post Graphtreon/Patreon discovery)
+
+**Patreon discovery is live** (`discover_patreon.py`, commit b01e2b1):
+`--harvest` crawls Graphtreon's public per-category top-50 lists (4 metrics ×
+drawing-painting/comics/animation, SFW + adult; robots.txt allows it; their
+paid API is only for daily-stats access we don't need) →
+`discovered_via='patreon_ranking'` roster accounts; adult-category listings
+get an nsfw platform_flag. `--hydrate-known` fetches patreon.com/{vanity}
+pages (allowed page HTML only, `/api/` never touched) and parses the
+ProfilePage JSON-LD: `sameAs` registered socials → profile_field same_person
+edges (user-entered, no oauth exemption; Patreon's own Organization block +
+footer socials excluded), about text → normal bio extraction, 404 → deleted.
+`pipeline.py` runs the patreon hydrate-known pass; reextract skips
+`graphtreon:ranking` snapshots (truncated blurbs must not drive bio_link
+retraction). First run: 857 distinct creators, 1,028 pages hydrated (~1,500
+edges), then 2 pipeline+hydrate_twitter rounds to convergence (463 paid
+twitter reads ≈ $4.64 under the <$10 standing rule). **Directory 2,601 →
+3,456 (+855; 854 active artists carry a patreon_ranking account); 1,523
+nsfw-flagged; review queue 26 → 36** (1 cluster_merge + 9 anomalies from the
+new cohort). Paid X spend: $38.76 of $100. The EN cohort roughly doubled
+(lang_en ~1,477) — language filters matter more now.
+
+## Previous state (2026-07-21, post bugfix/optimization pass)
 
 Pre-discovery bugfix pass (commit 6c4ecb2): **t.co resolution was silently
 broken** — t.co serves browser UAs a 200 interstitial, so all 3,554 cached
