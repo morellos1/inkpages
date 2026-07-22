@@ -10,120 +10,79 @@ is displayed strictly as the artist's own attestation, never our classification.
 Full brief: `~/Desktop/artist-directory-brief.md` (outside the repo). Design
 rationale: `docs/schema.md` and `docs/pipeline.md`.
 
-## Current state (2026-07-22c, post component-gate + backlog rounds)
+## Current state (2026-07-22, end of session — western discovery expansion)
 
-**Component evidence gate live** (commit 408b639): reciprocal components
-with NO roster-sourced member need artist evidence — project-flavored text
-(zine/big bang/anthology/合同誌/アンソロ, `extract.looks_like_project`) or no
-art evidence → `singleton_gate` review instead of auto-creating (approve
-creates the anchor's artist; component attaches next run). Retro sweep
-demoted 48 follow-on-only artists (25 project, 23 no-evidence) to
-needs_review. **Frontier yield collapsed by ring 3**: hydration rounds
-cleared 285/336/331 accounts, backlog regrew to ~330-380 each time
-(~$3.3/round), and the LAST round produced 0 artists + 0 members with 62
-components gated — the deep frontier is mostly projects/non-artists. Stopped
-chasing; **383-account backlog (~$3.83) intentionally left** — treat further
-frontier rounds as low-yield until the singleton_gate queue is worked.
-Migration 0028: 'artstation' in directory_entries.sources + SOURCE_OPTIONS.
-**Directory 3,983; spend $52.24 of $100; review queue 96 pending (62
-singleton_gate + 29 other + 5 cluster_merge); 67 artists in needs_review.**
+**Directory 3,983 artists** (2,601 → 3,983 today; lang_en ~2,039 vs ~635
+yesterday — the western cohort tripled). ~17.5k accounts. Paid X spend
+**$52.24 of $100**. Review queue **96 pending** (62 singleton_gate + 29
+anomalies/other + 5 cluster_merge) + **67 artists in needs_review** (48 from
+the component-gate retro sweep + 19 older). **383-account twitter backlog
+(~$3.83) intentionally left** — see frontier note below. Smoke green,
+migrations at 0028.
 
-## Previous state (2026-07-22b, post ArtStation Wayback enrichment)
+Two new discovery sources + one enrichment channel landed today:
 
-**ArtStation profile data DOES exist via the Internet Archive**
-(`discover_artstation --wayback-enrich`): the Archive holds organically
-captured `users/{u}.json` responses — full profiles (14 social-URL fields +
-social_profiles array, followers, headline). Availability API per handle →
-newest capture → profile_field edges with `archived YYYYMMDD` in
-matched_text. **We do not mass-request Save-Page-Now captures** (that would
-proxy-fetch around ArtStation's bot wall); only organically archived copies
-are read. First run: 574 checked, **34 archived (~6% — famous-name skew), 88
-social edges**; misses remembered (`wayback_archived:false`), avail-API
-failures retry. Hydration frontier rounds followed (335 paid twitter reads
-across 3 rounds ≈ $3.4): **directory 3,956 → 4,008, spend $42.72 of $100,
-review queue 33, backlog left at 285 (~$2.85, next session's rule covers
-it).** lang_en ~2,020.
+- **Patreon via Graphtreon** (`discover_patreon.py`): `--harvest` crawls
+  Graphtreon's per-category top-50 lists (4 metrics × drawing-painting/
+  comics/animation, SFW+adult; robots-permitted; `--max-new N` caps new
+  creators — use it when the user gives a number). Adult categories → nsfw
+  platform_flag. Stats (paid_members → followers_count,
+  monthly_earnings_usd, category/rank) in `platform_stats`; stat cells
+  PRECEDE the creator anchor on every list template. `--hydrate-known`
+  fetches patreon.com pages (never `/api/`) and parses ProfilePage JSON-LD
+  (`sameAs` → profile_field edges; Patreon's own Organization block +
+  footer socials excluded). `--graphtreon-enrich` backfills category/stats
+  for never-charted patreons via creator pages (closed category-name list;
+  404 → `graphtreon_tracked:false`, never refetched). 857 creators, ~1,000
+  pages hydrated, 955 categorized.
+- **ArtStation** (`discover_artstation.py`): only the community trending
+  feed is openly served (`--max-new`, dimension=2d first) — **profiles/
+  project JSON/HTML are Cloudflare-bot-walled and we never circumvent bot
+  protection** (also: no mass Save-Page-Now requests — that's proxy-
+  fetching). Roster rows carry id/name/avatar/position only. `--enrich-
+  known` = full-depth sweep refreshing existing rows; `--wayback-enrich`
+  pulls organically archived `users/{u}.json` from the Internet Archive
+  (~6% coverage, famous-name skew; 34 profiles → 88 social edges; misses
+  remembered). 576 artstation accounts; migration 0028 puts 'artstation' in
+  directory_entries.sources + SOURCE_OPTIONS facet.
+- **Component evidence gate** (`cluster.py` step 2 + `looks_like_project`):
+  reciprocal components with NO roster-sourced member must read like an
+  artist — zine/big bang/anthology/合同誌/アンソロ text or zero art evidence
+  → `singleton_gate` review instead of auto-creation (approve creates the
+  anchor's artist; the component attaches next run). Zines publish
+  reciprocal twitter↔carrd exactly like a person; graph shape can't tell
+  them apart, self-description can. Retro sweep demoted 48.
 
-## Previous state (2026-07-22, post ArtStation discovery)
+**Frontier economics (measured)**: hydrating the twitter backlog regrows it
+(each ring's bios reference the next ring, ~330-380/round at ~$3.3). Yield
+collapsed by ring 3: last round = 0 artists, 0 members, 62 gated components.
+Deep-frontier hydration is low-value; prefer roster sources and work the
+singleton_gate queue instead.
 
-**ArtStation discovery is live** (`discover_artstation.py`): the community
-trending feed (`/api/v2/community/explore/projects/trending.json`,
-robots-permitted; dimension=2d first, then all) is the only open surface —
-**profile pages, users/{u}.json and project JSON are Cloudflare-bot-walled
-and we do not circumvent bot protection**, so roster rows arrive with stable
-numeric id, username, display name, avatar and trending position ONLY (no
-bios/followers/socials). Cross-links form from the other side (artists' own
-bios linking artstation.com/username). `--max-new 500` honored. First run:
-506 creators (500 new → singleton artists, 6 unified with existing bio-link
-rows), snapshots `artstation:trending` (reextract-excluded),
-`discovered_via='artstation_ranking'` (ROSTER_SOURCES + SOURCE_META).
-**Directory 3,455 → 3,956; 576 artstation accounts; spend $38.90 of $100.**
-lang_en now ~1,972 (western cohort roughly tripled since 2026-07-21).
+Review-UI additions (all live): manual add-account (paste URL → human-added
+membership), dismissable connections (migration 0027 — `status='dismissed'`
+edges that upsert_edge can never resurrect + admin event blocks re-attach),
+bulk detach/attach-merge/remove with checkboxes, /removed page (suppressed
+artists+accounts, hidden accounts with unhide, invisible artists),
+localStorage filter persistence (query string + panel open state), website
+facet removed, humanized stat chips. Standing sub-50 cull is a pipeline step
+(`policy.CULL_MIN_FOLLOWERS`). Patreon reserved paths (`/creation?hid=`,
+`/collection/`…) and hub-infra domains (fonts.googleapis.com etc.) are
+blocked; bare `handle.bsky.social` parses as bluesky.
 
-## Previous state (2026-07-22, post Graphtreon/Patreon discovery)
-
-**Patreon discovery is live** (`discover_patreon.py`, commit b01e2b1):
-`--harvest` crawls Graphtreon's public per-category top-50 lists (4 metrics ×
-drawing-painting/comics/animation, SFW + adult; robots.txt allows it; their
-paid API is only for daily-stats access we don't need) →
-`discovered_via='patreon_ranking'` roster accounts; adult-category listings
-get an nsfw platform_flag. `--hydrate-known` fetches patreon.com/{vanity}
-pages (allowed page HTML only, `/api/` never touched) and parses the
-ProfilePage JSON-LD: `sameAs` registered socials → profile_field same_person
-edges (user-entered, no oauth exemption; Patreon's own Organization block +
-footer socials excluded), about text → normal bio extraction, 404 → deleted.
-`pipeline.py` runs the patreon hydrate-known pass; reextract skips
-`graphtreon:ranking` snapshots (truncated blurbs must not drive bio_link
-retraction). First run: 857 distinct creators, 1,028 pages hydrated (~1,500
-edges), then 2 pipeline+hydrate_twitter rounds to convergence (463 paid
-twitter reads ≈ $4.64 under the <$10 standing rule). **Directory 2,601 →
-3,456 (+855; 854 active artists carry a patreon_ranking account); 1,523
-nsfw-flagged; review queue 26 → 36** (1 cluster_merge + 9 anomalies from the
-new cohort). Paid X spend: $38.76 of $100. The EN cohort roughly doubled
-(lang_en ~1,477) — language filters matter more now.
-
-Note: the user asked for "top 500" but the first harvest had no cap, so all
-857 distinct creators across the 24 fixed top-50 lists landed. `--max-new N`
-now exists (caps NOT-yet-known creators per harvest, best chart position
-first; already-known creators always refresh) — use it when the user gives a
-number.
-
-Follow-up session additions:
-- **Graphtreon stats land in `platform_stats`** (paid_members,
-  monthly_earnings_usd where public, graphtreon_category/metric/rank) and
-  `followers_count` = paid members (sort + prominence analog). Stat cells
-  PRECEDE the creator anchor on every list template — the rank template's
-  visual order lies; a follow-mode misassociation once shifted every rank
-  page's stats by one row. Graphtreon's taxonomy is flat: no sub-tags inside
-  drawing-painting; siblings (3d-printing, crafts-diy, cosplay, photography)
-  can be added to `CATEGORIES` if wanted. Patreon page "topics" are mostly
-  empty; per-tier patron_counts exist in page HTML but only as a lower bound.
-- **Patreon reserved paths fixed** (`/creation?hid=…` post permalinks,
-  `/collection/…`, hc, settings etc. matched as creator handles — 4 junk
-  accounts, 10 edges purged; pattern now excludes them all).
-- **Bare `handle.bsky.social` URLs parse as bluesky** (were website
-  accounts); bsky.social in `_PLATFORM_DOMAINS`.
-- **Manual add-account on artist pages** (`/artist/<id>/add_account`): paste
-  any profile URL → parsed with the normal extraction patterns → attaches at
-  `added_by='human'` (pipeline never closes those). Owned-by-another-artist
-  pastes get pointed at the Connections merge flow instead.
-  `discovered_via='manual'` has a SOURCE_META entry.
-- **Dismissable connections** (migration 0027): a `remove` button on
-  Connections rows sets edges to `status='dismissed'` — hidden everywhere,
-  and `upsert_edge`'s ON CONFLICT carries `where status is distinct from
-  'dismissed'` so re-extraction can NEVER resurrect them (the bio still
-  contains the link → conflict → update skipped). Dismissal also logs an
-  admin `account_removed` event, so clustering refuses future auto-attach.
-- **The sub-50 cull is now a standing pipeline step**
-  (`pipeline.cull_low_followers`, `policy.CULL_MIN_FOLLOWERS=50`) — it was a
-  one-time migration-0016 action and 18 accounts hydrated since had slipped
-  back in. **/removed page** (nav-linked) lists suppressed artists,
-  suppressed accounts, hidden accounts (with per-account unhide), and
-  artists invisible because every member account is hidden/deleted.
-- Review UI polish: directory filter state (query string) + Filters-panel
-  open state persist in localStorage — the Directory nav links replay them
-  from any page. `website` removed from the platform facet. Patreon stat
-  chips are human ("3,908 paid members", "$X/mo", bare category, no rank).
+**Next up (in priority order):**
+1. **Work the review queues**: 62 singleton_gate (one click legitimizes a
+   whole component), Demoted page restores (retro sweep caught a few real
+   artists, e.g. andramion), 29 anomalies, 5 merges, and the older 132
+   artists with unresolved same-person claims.
+2. **DeviantArt discovery** (official free OAuth API — full profiles, no
+   bot wall; will behave like the Patreon run). Remember the cross-
+   hydration rule: enrich existing deviantart bio-link accounts in the same
+   session the source lands.
+3. **Twitter Lists harvest** (official API, 1¢/member — best paid
+   precision) and periodic #PortfolioDay runs.
+4. Bluesky list/starter-pack expansion (free); Cara (aligned, unofficial
+   endpoints); VGen (needs a parseability scout).
 
 ## Previous state (2026-07-21, post bugfix/optimization pass)
 
