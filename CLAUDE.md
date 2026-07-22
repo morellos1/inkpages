@@ -12,7 +12,27 @@ rationale: `docs/schema.md` and `docs/pipeline.md`. Untapped-source scouting
 (vgen/itaku/misskey/tumblr next; cara+mihuashi+instagram no-go, with reasons):
 `docs/source-scouting.md` (probed live 2026-07-22).
 
-## Current state (2026-07-22 latest+1 — VGen landed)
+## Current state (2026-07-22 final — VGen twitter wave + sources page)
+
+**Directory 5,902 artists**, lang_en 3,716 / ja 2,041 / zh 211. Paid X
+spend **$74.75 of $100**. Twitter backlog converged (~$0.2 residual;
+1,009 gated as zine/no-evidence chains — leave them). Smoke green.
+
+- **/sources now shows exact derivation per source**: a knob-for-knob
+  "How it's derived" line (`SOURCE_DERIVATION`) + live provenance chips
+  (`SOURCE_BREAKDOWN_SQL`) — pixiv tags/modes, Graphtreon categories,
+  bsky feeds, portfolioday queries, artstation dimensions, deviantart
+  feeds (recorded in discovery_details going forward), vgen listing
+  heads. Keep BOTH dicts in sync when adding a source.
+- **`db.set_platform_stats` MERGES jsonb now** (was replace — vgen
+  hydration's vgen_tags wiped the harvest's vgen_reviews/categories;
+  reviews backfilled from discovery_details, categories re-walked).
+- VGen twitter wave: 970+89 hydrated ($10.98 user-approved + $0.93
+  standing rule), +476 artists over two pipeline rounds. VGen top-1000
+  cohort: reviews 17 min / 32 median / 657 max; each artist surfaced on
+  ~9 listing heads on average (platform_stats.vgen_categories, capped 6).
+
+## Previous state (2026-07-22 latest+1 — VGen landed)
 
 **Directory 5,469 artists** (4,435 → 5,469; lang_en 3,388). Paid X spend
 $63.77. Review queue 109 pending. Migrations at 0031. **Twitter backlog
