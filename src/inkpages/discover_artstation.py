@@ -47,17 +47,74 @@ def fetch_trending(client, dimension: str, page: int) -> list[dict]:
         return []
 
 
+def enrich_known(conn, client, platforms, stats) -> None:
+    """Cross-hydration rule, within what the open surface allows: sweep every
+    trending dimension at full depth and refresh ONLY accounts already in the
+    db (bio-link targets predating this source) with their stable id, display
+    name and avatar. Creates nothing. Accounts that never chart have no
+    fetchable surface — ArtStation bot-walls profiles — and stay as the
+    handle-only rows their bio links minted."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """select lower(handle::text), id from accounts
+               where platform_id = %s""", (platforms["artstation"],))
+        known = dict(cur.fetchall())
+    seen: set[str] = set()
+    for dimension in ("2d", "3d", "all"):
+        for page in range(1, MAX_PAGES_PER_DIMENSION + 1):
+            items = fetch_trending(client, dimension, page)
+            stats["feed_pages"] += 1
+            if not items:
+                break
+            for pos, item in enumerate(items, (page - 1) * 100 + 1):
+                user = item.get("user") or {}
+                username = (user.get("username") or "").lower()
+                if username not in known or username in seen:
+                    continue
+                seen.add(username)
+                account_id = db.get_or_create_account(
+                    conn, platforms["artstation"],
+                    native_id=str(user["id"]),
+                    handle=user["username"],
+                    display_name=user.get("full_name"),
+                    profile_url=f"https://www.artstation.com/{user['username']}",
+                    discovered_via="bio_link",  # first discovery wins anyway
+                    hydrated=True,
+                )
+                db.set_avatar(conn, account_id, user.get("medium_avatar_url"))
+                db.set_platform_stats(conn, account_id, {
+                    "artstation_dimension": dimension,
+                    "artstation_position": pos,
+                    "pro_member": bool(user.get("pro_member")),
+                })
+                stats["enriched_known"] += 1
+            time.sleep(0.8)
+    db.log_api_usage(conn, "artstation", "community/trending(enrich)",
+                     stats["feed_pages"], 0)
+    conn.commit()
+    print(f"enriched {stats['enriched_known']} of {len(known)} known accounts "
+          f"({len(known) - stats['enriched_known']} never charted — nothing "
+          "fetchable for them)")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--max-new", type=int, default=500,
                         help="stop after this many creators not already in "
                              "the db (0 = take everything the feed pages out)")
+    parser.add_argument("--enrich-known", action="store_true",
+                        help="full-depth trending sweep that refreshes only "
+                             "accounts already in the db; creates nothing")
     args = parser.parse_args()
 
     stats: Counter = Counter()
     with httpx.Client(headers={**UA, "Accept": "application/json"},
                       follow_redirects=True) as client, db.connect() as conn:
         platforms = db.platform_ids(conn)
+        if args.enrich_known:
+            enrich_known(conn, client, platforms, stats)
+            print("done:", dict(stats))
+            return
         with conn.cursor() as cur:
             cur.execute(
                 """select coalesce(native_id, handle::text) from accounts
