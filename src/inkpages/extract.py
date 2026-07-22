@@ -84,8 +84,10 @@ BSKY_NSFW_SELF_LABELS = {"porn", "sexual", "nudity"}
 SHORTENER_DOMAINS = ("t.co", "bit.ly", "tinyurl.com", "goo.gl", "x.gd",
                      "onl.tw", "onl.sc", "buly.kr", "pixiv.me")
 
+# Lookbehind keeps host suffixes from matching: artist.co/x is not t.co/x,
+# newsonl.tw/x is not onl.tw/x.
 _SHORTENER = re.compile(
-    r"(?:https?://)?(?:%s)/[A-Za-z0-9_\-]+"
+    r"(?<![\w.-])(?:https?://)?(?:%s)/[A-Za-z0-9_\-]+"
     % "|".join(re.escape(d) for d in SHORTENER_DOMAINS), re.I)
 
 
@@ -263,14 +265,14 @@ _LINK_PATTERNS: list[tuple[str, re.Pattern]] = [
     ("tumblr", re.compile(r"tumblr\.com/(?!tagged\b|search\b|blog\b|post\b|share\b|app\b|apps\b|explore\b|dashboard\b|reblog\b|liked\b|likes\b|settings\b|login\b|register\b|about\b|policy\b|download\b|contact\b|support\b|help\b|terms\b|privacy\b|jobs\b|press\b|themes\b|communities\b|security\b)(?P<handle>[A-Za-z0-9-]+)", re.I)),
     ("gumroad", re.compile(r"(?<![\w.-])(?P<handle>[A-Za-z0-9]+)\.gumroad\.com", re.I)),
     ("inprnt", re.compile(r"inprnt\.com/gallery/(?P<handle>\w+)", re.I)),
-    ("instagram", re.compile(r"instagram\.com/(?!p/|reel/|explore\b)(?P<handle>[A-Za-z0-9._]{1,30})", re.I)),
+    ("instagram", re.compile(r"instagram\.com/(?!p/|reels?\b|stories\b|explore\b|accounts\b|direct\b|tv\b|share\b|about\b|legal\b|developer\b)(?P<handle>[A-Za-z0-9._]{1,30})", re.I)),
     ("mihuashi", re.compile(r"mihuashi\.com/(?:users|painters)/(?P<handle>[^/\s?#\"']+)", re.I)),
     ("youtube", re.compile(r"youtube\.com/@(?P<handle>[\w.-]+)", re.I)),
     ("youtube", re.compile(r"youtube\.com/(?:c/|user/)(?P<handle>[\w.-]+)", re.I)),
     ("youtube", re.compile(r"youtube\.com/channel/(?P<native_id>UC[\w-]{10,})", re.I)),
     ("discord", re.compile(r"(?:discord\.gg|discord(?:app)?\.com/invite)/(?P<handle>[A-Za-z0-9-]+)", re.I)),
     ("telegram", re.compile(r"\bt\.me/(?P<handle>[A-Za-z0-9_]{4,32})", re.I)),
-    ("twitch", re.compile(r"twitch\.tv/(?!videos\b|directory\b|collections\b)(?P<handle>[A-Za-z0-9_]{3,25})", re.I)),
+    ("twitch", re.compile(r"twitch\.tv/(?!videos\b|directory\b|collections\b|settings\b|downloads\b|subscriptions\b|drops\b|wallet\b|friends\b|jobs\b|store\b|p\b)(?P<handle>[A-Za-z0-9_]{3,25})", re.I)),
     ("furaffinity", re.compile(r"furaffinity\.net/user/(?P<handle>[\w.~-]+)", re.I)),
     ("behance", re.compile(r"(?:behance\.net|be\.net)/(?!gallery\b)(?P<handle>[A-Za-z0-9_-]+)", re.I)),
     ("boosty", re.compile(r"boosty\.to/(?P<handle>[A-Za-z0-9_.-]+)", re.I)),

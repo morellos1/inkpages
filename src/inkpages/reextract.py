@@ -53,8 +53,11 @@ def process(conn, platforms, row, stats) -> list[int]:
         link_text = "\n".join([bio, raw.get("location") or ""] + expanded_urls(raw))
 
     location = raw.get("location") if row["platform"] == "twitter" else None
-    db.set_contact_email(conn, account_id, find_email(
-        "\n".join(filter(None, [bio, location]))))
+    # Same rule as every discovery worker: only write signals the snapshot
+    # actually yields — never wipe a stored email/commission with None/unknown
+    # (this used to reset 300+ pixiv acceptRequest statuses every run).
+    if email := find_email("\n".join(filter(None, [bio, location]))):
+        db.set_contact_email(conn, account_id, email)
     if row["platform"] == "skeb" and "acceptable" in raw:
         # Platform-authoritative value from the stored API response — never
         # let a bio re-parse stomp it.
@@ -62,10 +65,16 @@ def process(conn, platforms, row, stats) -> list[int]:
                           ("open", 0.95, "skeb:acceptable") if raw["acceptable"]
                           else ("closed", 0.95, "skeb:not accepting"),
                           row["captured_at"])
+    elif (row["platform"] == "pixiv"
+            and ((raw.get("commission") or {}).get("acceptRequest") is True)):
+        # pixiv's request flag is platform state too (mirrors discover_pixiv).
+        db.set_commission(conn, account_id,
+                          ("open", 0.9, "pixiv:accept_request"),
+                          row["captured_at"])
     else:
         comm_text = "\n".join(filter(None, [bio, row["display_name"], location]))
-        db.set_commission(conn, account_id, find_commission_status(comm_text),
-                          row["captured_at"])
+        if comm := find_commission_status(comm_text):
+            db.set_commission(conn, account_id, comm, row["captured_at"])
 
     # Skeb structured fields (twitter_uid, id fields, url field, service
     # links) live in raw, not bio_text — re-derive their profile_field edges

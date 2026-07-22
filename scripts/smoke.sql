@@ -174,7 +174,9 @@ begin
 end
 $$;
 
+-- Eyeball sample only — the full dump was 200KB+ of noise in CI output.
 select public_slug, display_name, region, no_ai_attested, nsfw, jsonb_pretty(accounts) as accounts
-from directory_entries;
+from directory_entries order by public_slug limit 5;
+select count(*) as directory_entries_total from directory_entries;
 
 rollback;

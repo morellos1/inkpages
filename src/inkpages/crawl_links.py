@@ -22,8 +22,16 @@ from .extract import (SHORTENER_DOMAINS, find_commission_status, find_email,
                       find_platform_links, find_short_links, find_website_links)
 
 # SQL-side prefilter for snapshots that mention any shortener — kept in sync
-# with find_short_links by deriving from the same domain list.
+# with find_short_links by deriving from the same domain list. Loose superset
+# is fine: find_short_links does the boundary-exact extraction.
 _SHORTENER_SCAN_RE = "(%s)/" % "|".join(re.escape(d) for d in SHORTENER_DOMAINS)
+
+_HOST_OF = re.compile(r"^https?://([^/]+)", re.I)
+
+
+def _same_host(a: str, b: str) -> bool:
+    ha, hb = _HOST_OF.match(a), _HOST_OF.match(b)
+    return bool(ha and hb) and ha.group(1).lower() == hb.group(1).lower()
 
 # Hub services' own footer/social accounts. Every hub page carries them, so
 # they'd otherwise become massively-shared targets — or worse, an artist:
@@ -82,7 +90,11 @@ def fetch_page(client: httpx.Client, url: str):
 def resolve_url(conn, client: httpx.Client, url: str, cache: dict) -> str | None:
     """Resolve a shortener with a cross-run DB cache (resolved_links): a short
     URL's destination is effectively immutable, so each is fetched exactly
-    once, throttled. Failures aren't cached — retried next run."""
+    once, throttled. Failures aren't cached — retried next run.
+
+    The client must NOT send a browser User-Agent: t.co serves browsers a 200
+    HTML interstitial instead of the 301, which once poisoned the cache with
+    3.5k self-resolutions."""
     if url in cache:
         return cache[url]
     time.sleep(0.4)
@@ -96,6 +108,10 @@ def resolve_url(conn, client: httpx.Client, url: str, cache: dict) -> str | None
                 final = str(resp.url)
         except httpx.HTTPError:
             pass
+    if final is not None and _same_host(final, url):
+        # Never left the shortener (interstitial, error page, dead link) —
+        # that is a failed resolution, not a destination. Don't cache in DB.
+        final = None
     cache[url] = final
     if final:
         with conn.cursor() as cur:
@@ -113,9 +129,11 @@ def resolve_shorteners(conn, client, platforms, stats):
         # Bio plus the Twitter location field — artists park links there too.
         cur.execute(
             """select distinct on (s.account_id)
-                      s.account_id, s.id as snapshot_id,
+                      s.account_id, s.id as snapshot_id, p.slug as platform,
                       coalesce(s.bio_text, '') || ' ' || coalesce(s.raw ->> 'location', '') as scan_text
                from account_snapshots s
+               join accounts a on a.id = s.account_id
+               join platforms p on p.id = a.platform_id
                where coalesce(s.bio_text, '') || ' ' || coalesce(s.raw ->> 'location', '')
                      ~* %s
                order by s.account_id, s.captured_at desc""",
@@ -129,6 +147,11 @@ def resolve_shorteners(conn, client, platforms, stats):
         if db.is_suppressed(conn, row["account_id"]):
             continue
         for short in find_short_links(row["scan_text"]):
+            # A twitter bio's own t.co wrappers are already expanded for free
+            # by the API's url entities at hydration — resolving them here is
+            # pure duplicate fetch work (~3.5k of them at one point).
+            if row["platform"] == "twitter" and short.startswith("https://t.co/"):
+                continue
             final = resolve_url(conn, client, short, cache)
             stats["shorteners_resolved"] += 1
             if not final:
@@ -289,7 +312,10 @@ def main() -> None:
     args = parser.parse_args()
 
     stats: Counter = Counter()
-    with httpx.Client(headers=UA) as client, db.connect() as conn:
+    # Two clients on purpose: hubs need browser headers (Linktree 403s bots),
+    # but shorteners need NON-browser headers (t.co only 301s non-browsers).
+    plain = httpx.Client(headers={"User-Agent": "inkpages/0.1 (link resolver)"})
+    with plain, httpx.Client(headers=UA) as client, db.connect() as conn:
         platforms = db.platform_ids(conn)
         # Re-queue hubs whose earlier crawl produced nothing (e.g. was blocked
         # before the browser-header fix) so they get another attempt.
@@ -308,7 +334,7 @@ def main() -> None:
                          and a.last_hydrated is not null and a.status <> 'deleted'
                          and not exists (select 1 from identity_edges e
                                          where e.source_account_id = a.id)""")
-        resolve_shorteners(conn, client, platforms, stats)
+        resolve_shorteners(conn, plain, platforms, stats)
         crawl_hubs(conn, client, platforms, args.max_hubs, stats)
         conn.commit()
     print("done:", dict(stats))

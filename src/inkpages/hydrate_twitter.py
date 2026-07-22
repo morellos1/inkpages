@@ -25,12 +25,14 @@ def main() -> None:
         platforms = db.platform_ids(conn)
         if args.refresh:
             with conn.cursor() as cur:
-                # 'hidden' (verification-culled) accounts are excluded: a
-                # refresh must never spend on them or resurrect the cull.
+                # 'hidden' (verification-culled) and 'deleted' accounts are
+                # excluded: a refresh must never spend on them or resurrect
+                # the cull. (A returning suspended account needs an explicit
+                # admin status lift first.)
                 cur.execute(
                     """select native_id from accounts
                        where platform_id = %s and native_id is not null
-                         and status <> 'hidden'
+                         and status not in ('hidden', 'deleted')
                        order by last_hydrated asc nulls first limit %s""",
                     (platforms["twitter"], args.limit),
                 )
