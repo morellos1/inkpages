@@ -10,7 +10,22 @@ is displayed strictly as the artist's own attestation, never our classification.
 Full brief: `~/Desktop/artist-directory-brief.md` (outside the repo). Design
 rationale: `docs/schema.md` and `docs/pipeline.md`.
 
-## Current state (2026-07-21, post-audit)
+## Current state (2026-07-21, post bugfix/optimization pass)
+
+Pre-discovery bugfix pass (commit 6c4ecb2): **t.co resolution was silently
+broken** — t.co serves browser UAs a 200 interstitial, so all 3,554 cached
+"resolutions" were self-referential; `resolve_url` now uses a plain-UA client,
+treats same-host results as failures (never cached), and skips twitter bios'
+own t.co links entirely (API entities expand those free). Poisoned cache rows
+purged; genuine t.co links (skeb/fantia/carrd destinations) now resolve.
+`_SHORTENER` got a left boundary (artist.co ≠ t.co); instagram/twitch patterns
+exclude more reserved paths (reels, stories, drops…). **reextract no longer
+wipes email/commission with None** (it reset 309 pixiv accept_request statuses
+to unknown every run — backfilled) and honors pixiv `acceptRequest` as
+platform state. `hydrate_twitter --refresh` skips deleted accounts. smoke.sql
+output trimmed. Directory steady at 2,601; review queue steady at 26.
+
+## Previous state (2026-07-21, post-audit)
 
 A full app+DB audit ran on 2026-07-21; all fixes landed (5 commits: invariant
 fixes, migration 0022/0023 hardening, edge-churn fixes, review-UI
