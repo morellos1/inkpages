@@ -127,11 +127,17 @@ def profile_fields(state: dict, username: str) -> dict:
 
 
 # The overall Popular feed paginates ~6 pages deep (~290 distinct authors);
-# art-category-scoped popular feeds extend the pool to whatever --top asks.
+# category- and search-scoped popular feeds widen the pool to whatever --top
+# asks. The backend rate-limits bursts by serving empty channels — the
+# harvest backs off and retries once per URL before moving on.
 FEED_QUERIES = ("boost%3Apopular",
                 "boost%3Apopular+in%3Adigitalart",
                 "boost%3Apopular+in%3Atraditional",
-                "boost%3Apopular+in%3Afanart")
+                "boost%3Apopular+in%3Afanart",
+                "illustration+boost%3Apopular",
+                "fantasy+boost%3Apopular",
+                "portrait+boost%3Apopular",
+                "original+character+boost%3Apopular")
 
 
 def harvest(conn, client, platforms, stats, top: int) -> None:
@@ -140,13 +146,15 @@ def harvest(conn, client, platforms, stats, top: int) -> None:
     pages = 0
     feeds = iter(FEED_QUERIES)
     url = f"{RSS}?type=deviation&q={next(feeds)}"
+    retried = False
     while len(authors) < top and pages < 120:
         if url is None:
             q = next(feeds, None)
             if q is None:
                 break
             url = f"{RSS}?type=deviation&q={q}"
-        time.sleep(1.0)
+            retried = False
+        time.sleep(2.0)
         resp = fetch_page(client, url)
         if resp is None or resp.status_code != 200:
             stats["feed_failed"] += 1
@@ -155,8 +163,16 @@ def harvest(conn, client, platforms, stats, top: int) -> None:
         pages += 1
         items = _ITEM.findall(resp.text)
         if not items:
+            # Rate-limited channels come back empty with HTTP 200; one
+            # patient retry per URL, then move on to the next feed.
+            if not retried:
+                retried = True
+                stats["feed_backoffs"] += 1
+                time.sleep(60.0)
+                continue
             url = None
             continue
+        retried = False
         for item in items:
             credits = _CREDIT.findall(item)
             names = [c for c in credits if not c.startswith("http")]
@@ -223,16 +239,31 @@ def hydrate_known(conn, client, platforms, limit, stats) -> None:
         )
         todo = cur.fetchall()
     print(f"hydrating {len(todo)} deviantart about pages")
+    blocked_streak = 0
     for n, (account_id, username) in enumerate(todo, 1):
         if db.is_suppressed(conn, account_id):
             stats["skipped_suppressed"] += 1
             continue
-        time.sleep(1.0)  # robots.txt crawl-delay
+        time.sleep(1.5)  # robots.txt crawl-delay is 1s; stay under the radar
         resp = fetch_page(client,
                           f"https://www.deviantart.com/{username.lower()}/about")
+        if resp is not None and resp.status_code == 403:
+            # Sustained fetching trips a block. One patient retry; if the
+            # block holds, stop the run — accounts keep last_hydrated null
+            # and the next run resumes where this one left off.
+            blocked_streak += 1
+            if blocked_streak >= 3:
+                print(f"  403 block holding after backoff — stopping at {n}/{len(todo)}")
+                stats["aborted_on_403"] = 1
+                break
+            time.sleep(90.0)
+            resp = fetch_page(
+                client, f"https://www.deviantart.com/{username.lower()}/about")
         if resp is None:
             stats["fetch_failed"] += 1
             continue
+        if resp.status_code != 403:
+            blocked_streak = 0
         if resp.status_code in (404, 410):
             with conn.cursor() as cur:
                 cur.execute(
