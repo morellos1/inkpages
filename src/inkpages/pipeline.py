@@ -54,17 +54,27 @@ def hydrate_free_platforms() -> None:
 
 
 def report_twitter_backlog() -> None:
-    with db.connect() as conn, conn.cursor() as cur:
-        cur.execute(
-            """select count(*) from accounts a
-               join platforms p on p.id = a.platform_id
-               where p.slug = 'twitter' and a.last_hydrated is null
-                 and a.status <> 'deleted' and a.discovered_via <> 'bio_mention'""")
-        n = cur.fetchone()[0]
+    from .hydrate_twitter import gated_handle_backlog
+
+    with db.connect() as conn:
+        with conn.cursor() as cur:
+            # Native-id rows (OAuth-verified, ungated) hydrate by stable id.
+            cur.execute(
+                """select count(*) from accounts a
+                   join platforms p on p.id = a.platform_id
+                   where p.slug = 'twitter' and a.last_hydrated is null
+                     and a.native_id is not null and a.status <> 'deleted'""")
+            n_ids = cur.fetchone()[0]
+        handles, gated = gated_handle_backlog(conn, db.platform_ids(conn)["twitter"])
+    n = n_ids + len(handles)
     if n:
         print(f"twitter backlog: {n} accounts await paid hydration "
-              f"(~{n * USER_READ_CENTS / 100:.2f}$) — run inkpages.hydrate_twitter "
-              f"after approving the spend")
+              f"(~{n * USER_READ_CENTS / 100:.2f}$"
+              f"{f'; {gated} more gated as zine/no-artist-evidence chains' if gated else ''})"
+              " — run inkpages.hydrate_twitter after approving the spend")
+    elif gated:
+        print(f"twitter backlog: 0 hydratable ({gated} gated as "
+              "zine/no-artist-evidence chains)")
 
 
 def main() -> None:

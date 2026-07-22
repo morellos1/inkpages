@@ -265,7 +265,12 @@ _LINK_PATTERNS: list[tuple[str, re.Pattern]] = [
     ("bluesky", re.compile(r"(?<![\w.-])(?P<handle>[A-Za-z0-9][A-Za-z0-9-]*\.bsky\.social)\b", re.I)),
     ("pixiv", re.compile(r"pixiv\.net/(?:en/)?(?:users/|member\.php\?id=)(?P<native_id>\d+)", re.I)),
     ("skeb", re.compile(r"skeb\.jp/@(?P<handle>[\w.-]+)", re.I)),
-    ("artstation", re.compile(r"artstation\.com/(?!marketplace\b|learning\b|artwork\b|blogs\b|prints\b|challenges\b|jobs\b)(?P<handle>[A-Za-z0-9_-]+)", re.I)),
+    # Old-style profile URLs are artstation.com/artist/<name>; the bare
+    # /artist path (or any reserved page) is never a handle itself.
+    ("artstation", re.compile(
+        r"artstation\.com/(?:artist/)?(?!marketplace\b|learning\b|artwork\b"
+        r"|blogs\b|prints\b|challenges\b|jobs\b|artist\b|search\b|contests\b"
+        r"|schools\b|studios\b|guides\b|about\b)(?P<handle>[A-Za-z0-9_-]+)", re.I)),
     # Patreon uses both /c/ and the newer /cw/ as path prefixes before the
     # creator name — neither is ever the handle itself. Reserved paths like
     # /creation?hid=… (post permalinks) and /collection/… are page types,

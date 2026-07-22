@@ -44,7 +44,11 @@ TEMPLATES = {
   .stat { background: #fff; border: 1px solid #e7e7e7; border-radius: 8px; padding: .6rem 1rem; min-width: 8.5rem; }
   .stat b { display: block; font-size: 1.5em; }
   .card { background: #fff; border: 1px solid #e7e7e7; border-radius: 8px; padding: 1rem 1.2rem; margin-bottom: 1rem; }
-  .bio { background: #f6f6f2; border-left: 3px solid #cbd5e1; padding: .4rem .7rem; white-space: pre-wrap; font-size: .92em; }
+  /* overflow-wrap: an unbroken run (long URL, kaomoji wall) must wrap instead
+     of stretching its cell — one wide bio used to widen every table on the page. */
+  .bio { background: #f6f6f2; border-left: 3px solid #cbd5e1; padding: .4rem .7rem; white-space: pre-wrap; font-size: .92em; overflow-wrap: anywhere; }
+  td { overflow-wrap: anywhere; }
+  td button { overflow-wrap: normal; white-space: nowrap; }
   form.inline { display: inline; }
   button { border: 0; border-radius: 6px; padding: .35rem .8rem; cursor: pointer; font-weight: 600; }
   button.ok { background: #d7f4dd; } button.no { background: #fde2e2; } button.warn { background: #fca311; }
@@ -193,6 +197,17 @@ TEMPLATES = {
     window.scrollTo(0, parseInt(saved, 10) || 0);
   }
 })();
+</script>
+<script>
+// Header select-all: a checkbox with data-checkall="<form id>" toggles every
+// row checkbox submitting to that form (checkboxes live outside the form
+// element, bound via the form= attribute).
+document.querySelectorAll('input[data-checkall]').forEach(function (all) {
+  all.addEventListener('change', function () {
+    document.querySelectorAll('input[type=checkbox][form="' + all.dataset.checkall + '"]')
+      .forEach(function (cb) { cb.checked = all.checked; });
+  });
+});
 </script>
 <script>
 function toggleBio(btn) {
@@ -364,7 +379,7 @@ document.querySelectorAll('.bio').forEach(function (box) {
 </div>
 
 <h2>Accounts</h2>
-<table><tr><th></th><th>platform</th><th>handle</th><th>confidence</th><th>nsfw</th><th>followers</th><th>last post</th><th>comms</th><th>contact</th><th>bio (latest snapshot)</th><th></th></tr>
+<table><tr><th><input type="checkbox" data-checkall="bulkacc" title="select all"></th><th>platform</th><th>handle</th><th>confidence</th><th>nsfw</th><th>followers</th><th>last post</th><th>comms</th><th>contact</th><th>bio (latest snapshot)</th><th></th></tr>
 {% for acc in accounts %}<tr>
   <td><input type="checkbox" form="bulkacc" name="ids" value="{{ acc.id }}"></td>
   <td>{{ acc.platform }}</td>
@@ -400,7 +415,7 @@ document.querySelectorAll('.bio').forEach(function (box) {
 claim</b> means the evidence says same person but clustering could not act alone
 (the account belongs to another artist, or a guard held it back) — confirm to
 attach/merge.</p>
-<table><tr><th></th><th>direction</th><th>account</th><th>belongs to</th><th>followers</th><th>claim</th><th>evidence</th><th></th></tr>
+<table><tr><th><input type="checkbox" data-checkall="bulkconn" title="select all"></th><th>direction</th><th>account</th><th>belongs to</th><th>followers</th><th>claim</th><th>evidence</th><th></th></tr>
 {% for c in connections %}<tr>
   <td><input type="checkbox" form="bulkconn" name="ids" value="{{ c.other_id }}"></td>
   <td>{{ c.direction }}</td>

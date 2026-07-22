@@ -4,10 +4,91 @@ via users/by (~$0.01/user, 100 handles per request), with the budget guard.
 Usage: uv run python -m inkpages.hydrate_twitter --limit 200
 """
 import argparse
-from collections import Counter
+from collections import Counter, defaultdict
 
-from . import db
+from . import db, policy
+from .extract import looks_like_artist, looks_like_project
 from .twitter import USER_READ_CENTS, XApi, ensure_budget, process_user
+
+# Referrer texts and vouching facts for the handle-only backlog, one row per
+# (target, referrer). Hub referrers (carrd/linktree/…) carry no self-
+# description, so the hub's own referrers are pulled in as a second hop —
+# the artist behind the hub is the voucher, not the hub page.
+_BACKLOG_SQL = """
+with targets as (
+  select a.id, a.handle::text as handle
+  from accounts a
+  where a.platform_id = %(tw)s and a.native_id is null and a.last_hydrated is null
+    and a.status = 'unknown' and a.discovered_via <> 'bio_mention'
+),
+direct as (
+  select t.id as target_id, e.source_account_id as ref_id
+  from targets t
+  join identity_edges e on e.target_account_id = t.id and e.status = 'present'
+),
+hub_up as (
+  select d.target_id, e2.source_account_id as ref_id
+  from direct d
+  join accounts h on h.id = d.ref_id
+  join platforms hp on hp.id = h.platform_id and hp.kind = 'link_hub'
+  join identity_edges e2 on e2.target_account_id = h.id and e2.status = 'present'
+),
+refs as (select * from direct union select * from hub_up)
+select t.id, t.handle, r.ref_id, ra.discovered_via as ref_via,
+       exists (select 1 from artist_accounts aa
+               join artists ar on ar.id = aa.artist_id
+               where aa.account_id = r.ref_id and aa.removed_at is null
+                 and ar.merged_into is null and ar.status = 'active') as ref_is_member,
+       concat_ws(' ', ra.handle::text, ra.display_name, s.bio_text) as ref_text
+from targets t
+left join refs r on r.target_id = t.id
+left join accounts ra on ra.id = r.ref_id
+left join lateral (
+    select bio_text from account_snapshots
+    where account_id = r.ref_id order by captured_at desc limit 1) s on true
+order by t.id
+"""
+
+
+def gated_handle_backlog(conn, twitter_platform_id: int,
+                         limit: int | None = None) -> tuple[list[str], int]:
+    """The handle-only hydration backlog, minus zine/big-bang/writers-circle
+    chains. Each paid read must be vouched for by at least one referrer that
+    reads like an artist (or IS one): zines and fic events link participant
+    rosters exactly like artists link their own alts, and hydrating those
+    participants mints the next ring of hub crawls — the measured
+    frontier-collapse loop. A target passes when its own handle carries art
+    hints, or some referrer is a listed artist's account / roster-discovered /
+    art-flavored in its own words — and that referrer isn't itself
+    project-flavored. Skipped targets stay in `unknown` costing nothing; a
+    later artful referrer (or a manual add) lifts them naturally."""
+    with conn.cursor() as cur:
+        cur.execute(_BACKLOG_SQL, {"tw": twitter_platform_id})
+        rows = cur.fetchall()
+    by_target: dict[int, dict] = {}
+    refs: defaultdict[int, list] = defaultdict(list)
+    for target_id, handle, ref_id, ref_via, ref_is_member, ref_text in rows:
+        by_target[target_id] = {"handle": handle}
+        if ref_id is not None:
+            refs[target_id].append((ref_via, ref_is_member, ref_text))
+
+    passing: list[str] = []
+    skipped = 0
+    for target_id, target in by_target.items():
+        vouched = looks_like_artist(target["handle"])
+        for ref_via, ref_is_member, ref_text in refs[target_id]:
+            if vouched:
+                break
+            if looks_like_project(ref_text):
+                continue
+            if (ref_is_member or ref_via in policy.ROSTER_SOURCES
+                    or looks_like_artist(ref_text)):
+                vouched = True
+        if vouched:
+            passing.append(target["handle"])
+        else:
+            skipped += 1
+    return (passing[:limit] if limit is not None else passing), skipped
 
 
 def main() -> None:
@@ -65,17 +146,14 @@ def main() -> None:
                 (platforms["twitter"], args.limit),
             )
             ids = [r[0] for r in cur.fetchall()]
-            # bio_mention targets are deliberately excluded: mentions are
-            # mostly friends/credits, not worth a paid read until an edge or
-            # human says otherwise.
-            cur.execute(
-                """select handle::text from accounts
-                   where platform_id = %s and native_id is null and last_hydrated is null
-                     and status = 'unknown' and discovered_via <> 'bio_mention'
-                   order by id limit %s""",
-                (platforms["twitter"], max(args.limit - len(ids), 0)),
-            )
-            handles = [r[0] for r in cur.fetchall()]
+        # bio_mention targets are deliberately excluded: mentions are
+        # mostly friends/credits, not worth a paid read until an edge or
+        # human says otherwise. The rest go through the referrer gate —
+        # zine/fic-event chains never earn a paid read.
+        handles, gated = gated_handle_backlog(
+            conn, platforms["twitter"], max(args.limit - len(ids), 0))
+        if gated:
+            print(f"gated {gated} backlog handles (no artist-flavored referrer)")
         if not ids and not handles:
             print("nothing to hydrate")
             return
