@@ -10,7 +10,25 @@ is displayed strictly as the artist's own attestation, never our classification.
 Full brief: `~/Desktop/artist-directory-brief.md` (outside the repo). Design
 rationale: `docs/schema.md` and `docs/pipeline.md`.
 
-## Current state (2026-07-22b, post ArtStation Wayback enrichment)
+## Current state (2026-07-22c, post component-gate + backlog rounds)
+
+**Component evidence gate live** (commit 408b639): reciprocal components
+with NO roster-sourced member need artist evidence — project-flavored text
+(zine/big bang/anthology/合同誌/アンソロ, `extract.looks_like_project`) or no
+art evidence → `singleton_gate` review instead of auto-creating (approve
+creates the anchor's artist; component attaches next run). Retro sweep
+demoted 48 follow-on-only artists (25 project, 23 no-evidence) to
+needs_review. **Frontier yield collapsed by ring 3**: hydration rounds
+cleared 285/336/331 accounts, backlog regrew to ~330-380 each time
+(~$3.3/round), and the LAST round produced 0 artists + 0 members with 62
+components gated — the deep frontier is mostly projects/non-artists. Stopped
+chasing; **383-account backlog (~$3.83) intentionally left** — treat further
+frontier rounds as low-yield until the singleton_gate queue is worked.
+Migration 0028: 'artstation' in directory_entries.sources + SOURCE_OPTIONS.
+**Directory 3,983; spend $52.24 of $100; review queue 96 pending (62
+singleton_gate + 29 other + 5 cluster_merge); 67 artists in needs_review.**
+
+## Previous state (2026-07-22b, post ArtStation Wayback enrichment)
 
 **ArtStation profile data DOES exist via the Internet Archive**
 (`discover_artstation --wayback-enrich`): the Archive holds organically
