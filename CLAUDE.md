@@ -12,7 +12,25 @@ rationale: `docs/schema.md` and `docs/pipeline.md`. Untapped-source scouting
 (vgen/itaku/misskey/tumblr next; cara+mihuashi+instagram no-go, with reasons):
 `docs/source-scouting.md` (probed live 2026-07-22).
 
-## Current state (2026-07-22 end — tiktok, category tiers, UI polish)
+## Current state (2026-07-22 close — vgen tier-1/2 cull + refill)
+
+**Directory 5,655 artists** (lang_en 3,969 / ja 2,075). Paid X spend
+**$78.92 of $100**. Smoke green. **1,103 vgen-anchored active artists.**
+
+- **VGen is tier-1/2 only from now on** (user directive): harvest defaults
+  to the 42 `ARTIST_ROOTS` in discover_vgen.py (tiers 1-2 of
+  docs/vgen-categories.md — core illustration + vtuber/avatar/emote art);
+  `--all-categories` is the explicit override, `--max-new N` caps fresh
+  mints (known accounts always refresh). Tier-1/2 walk = 601 listings,
+  ~3,500 distinct artists visible per walk.
+- **Cull executed**: 666 artists whose vgen categories were all tier 3-5
+  demoted (`vgen_non_artist_category`, Demoted page, no admin-touched or
+  other-roster-vouched artists included). A fresh tier-1/2 walk then
+  **resurrected 103** whose 6-slot alphabetical category cap had hidden
+  real illustration listings (`vgen_tier12_resurfaced`) — walk-first
+  before culling on capped categories, always. Net cull 563.
+
+## Previous state (2026-07-22 end — tiktok, category tiers, UI polish)
 
 **Directory 6,199 artists** (lang_en 3,952 / ja 2,077). Paid X spend
 **$78.07 of $100**. Smoke green, migrations at 0032.

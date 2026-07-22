@@ -42,6 +42,38 @@ from .extract import (find_attestations, find_commission_status, find_email,
 
 SITE = "https://vgen.co"
 _SITEMAP_LOC = re.compile(r"<loc>([^<]+)</loc>")
+
+# Category roots that mark a regular digital artist — tiers 1-2 of
+# docs/vgen-categories.md (core illustration + vtuber/avatar/emote art).
+# Harvests walk ONLY these listings unless --all-categories is passed
+# (user directive 2026-07-22: tier 3-5-only artists were culled; every
+# future crawl stays tier 1-2 so only artists come in).
+ARTIST_ROOTS = {
+    # tier 1 — core digital illustration
+    "character-illustrations", "chibi-illustrations", "creature-illustrations",
+    "character-reference-sheets", "creature-reference-sheets",
+    "other-reference-sheets", "custom-character-design", "custom-creature-design",
+    "custom-outfit-design", "custom-backgrounds", "other-custom-illustrations",
+    "illustrations", "custom-comics-creation", "custom-dakimakura",
+    "custom-book-cover", "custom-drawings", "other-custom-original-design",
+    "original-animatics-storyboards", "digital-illustration-advice",
+    # tier 2 — illustration-adjacent (vtuber/avatar/emote art)
+    "vtuber-model-art", "chibi-vtuber-model-art", "creature-model-art",
+    "other-2d-vtuber-model-art", "custom-pngtuber-giftuber-avatar",
+    "custom-chibi-pngtuber-giftuber-avatar",
+    "custom-creature-pngtuber-giftuber-avatar", "other-custom-reactive-avatars",
+    "2d-avatars", "custom-emotes", "emotes-badges", "custom-chat-stickers",
+    "custom-subscriber-badges", "custom-stickers", "custom-vtuber-stream-props",
+    "custom-vtuber-throwables", "custom-vtuber-debut-graphics",
+    "custom-vtuber-model-add-ons", "other-custom-2d-vtuber-model-add-ons",
+    "custom-stream-avatar-sprites", "custom-acrylic-charms",
+    "custom-posters-prints", "custom-patterns",
+}
+
+
+def category_root(url: str) -> str:
+    tail = url.split("/category/")[-1].split("/catalogue/")[-1]
+    return tail.split("/")[0]
 _NEXT_DATA_MARK = "__NEXT_DATA__"
 
 
@@ -66,12 +98,13 @@ def category_urls(client) -> list[str]:
 
 
 def harvest(conn, client, platforms, stats, top: int,
-            max_listings: int = 0, exclude: list[str] | None = None) -> None:
+            max_listings: int = 0, exclude: list[str] | None = None,
+            all_categories: bool = False, max_new: int = 0) -> None:
     urls = category_urls(client)
+    if not all_categories:
+        urls = [u for u in urls if category_root(u) in ARTIST_ROOTS]
     if exclude:
-        # Root-prefix skip list (see docs/vgen-categories.md tiers) — e.g.
-        # --exclude-category vod-editing --exclude-category writing keeps
-        # video/audio/writing niches out of the walk entirely.
+        # Additional root-prefix skip list on top of the tier-1/2 default.
         urls = [u for u in urls
                 if not any(u.split("/category/")[-1].startswith(p)
                            for p in exclude)]
@@ -125,6 +158,24 @@ def harvest(conn, client, platforms, stats, top: int,
           f"{stats['lists_fetched']} listings")
 
     ranked = sorted(artists.values(), key=lambda r: -r["reviews"])[:top]
+    if max_new:
+        # Cap NEW artists minted; already-known vgen accounts always
+        # refresh (stats/categories/snapshot) without counting.
+        with conn.cursor() as cur:
+            cur.execute(
+                """select handle::text from accounts where platform_id = %s""",
+                (platforms["vgen"],))
+            known = {h.lower() for (h,) in cur.fetchall()}
+        kept, new_seen = [], 0
+        for row in ranked:
+            if row["username"].lower() in known:
+                kept.append(row)
+            elif new_seen < max_new:
+                kept.append(row)
+                new_seen += 1
+            else:
+                stats["skipped_over_max_new"] += 1
+        ranked = kept
     for rank, row in enumerate(ranked, 1):
         account_id = db.get_or_create_account(
             conn, platforms["vgen"],
@@ -357,6 +408,13 @@ def main() -> None:
                         help="skip listings whose category path starts with "
                              "this root (repeatable; tiers in "
                              "docs/vgen-categories.md)")
+    parser.add_argument("--all-categories", action="store_true",
+                        help="walk every sampled listing instead of the "
+                             "tier-1/2 artist allowlist (ARTIST_ROOTS)")
+    parser.add_argument("--max-new", type=int, default=0,
+                        help="cap artists minted that have no vgen account "
+                             "yet, best reviews first (0 = no cap); known "
+                             "accounts always refresh")
     parser.add_argument("--hydrate-known", action="store_true",
                         help="fetch profiles for vgen accounts never hydrated")
     parser.add_argument("--limit", type=int, default=1200,
@@ -372,7 +430,9 @@ def main() -> None:
         if args.harvest:
             harvest(conn, client, platforms, stats, args.top,
                     max_listings=args.max_listings,
-                    exclude=args.exclude_category)
+                    exclude=args.exclude_category,
+                    all_categories=args.all_categories,
+                    max_new=args.max_new)
         if args.hydrate_known:
             hydrate_known(conn, client, platforms, args.limit, stats)
     print("done:", dict(stats))
