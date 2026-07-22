@@ -9,16 +9,17 @@ platforms are never fetched.
 Usage: uv run python -m inkpages.crawl_links [--max-hubs 100]
 """
 import argparse
+import re
 import time
 from collections import Counter
+from html import unescape as _unescape
 
 import httpx
 from psycopg.rows import dict_row
 
 from . import db
-import re
-
-from .extract import (SHORTENER_DOMAINS, find_commission_status, find_email,
+from .extract import (SHORTENER_DOMAINS, find_attestations,
+                      find_commission_status, find_email, find_nsfw_flags,
                       find_platform_links, find_short_links, find_website_links)
 
 # SQL-side prefilter for snapshots that mention any shortener — kept in sync
@@ -180,6 +181,28 @@ def resolve_shorteners(conn, client, platforms, stats):
                 stats["edges_from_shorteners"] += 1
 
 
+# Hubs whose OG tags carry real profile data (og:title = the artist's own
+# display name, og:image = profile icon, og:description = their bio text).
+# Linktree/Carrd og tags are share banners / boilerplate — never captured.
+PROFILE_OG_HUBS = ("potofu",)
+
+_OG_TAG = re.compile(
+    r'<meta[^>]+property=["\']og:(title|image|description)["\'][^>]+content=["\']([^"\']*)["\']',
+    re.I)
+_OG_TAG_REV = re.compile(  # attribute order flipped (content before property)
+    r'<meta[^>]+content=["\']([^"\']*)["\'][^>]+property=["\']og:(title|image|description)["\']',
+    re.I)
+
+
+def extract_og(html: str) -> dict:
+    og: dict[str, str] = {}
+    for key, value in _OG_TAG.findall(html):
+        og.setdefault(key.lower(), value.strip())
+    for value, key in _OG_TAG_REV.findall(html):
+        og.setdefault(key.lower(), value.strip())
+    return og
+
+
 def crawl_hubs(conn, client, platforms, max_hubs, stats):
     """Fetch hub pages that appear in the graph and extract the links inside
     as link_hub edges (hub -> target)."""
@@ -241,15 +264,46 @@ def crawl_hubs(conn, client, platforms, max_hubs, stats):
             "\n".join(dict.fromkeys(m.group(1) for m in _LINKED_URL.finditer(html))))
         if len(site_links) <= 5:
             links += site_links
+        # Profile-flavored hubs (potofu): OG tags are the artist's own name,
+        # icon and bio — capture them so hub accounts stop being bare slugs.
+        og_name = og_desc = None
+        if hub["platform"] in PROFILE_OG_HUBS:
+            og = extract_og(html)
+            og_name = _unescape(og.get("title", "")).strip()
+            # Some accounts' og:title carries the service suffix ("name |
+            # POTOFU | POTOFU"); the artist's own name is the leading part.
+            og_name = re.sub(r"(?:\s*\|\s*POTOFU)+\s*$", "", og_name).strip() or None
+            og_desc = _unescape(og.get("description", "")).strip() or None
+            if og_name:
+                with conn.cursor() as cur:
+                    cur.execute("update accounts set display_name = %s where id = %s",
+                                (og_name, hub["id"]))
+            image = og.get("image", "")
+            if image.startswith("http") and "default_profile" not in image:
+                db.set_avatar(conn, hub["id"], image)
+
+        link_list = "\n".join(sorted({l.url for l in links}))
         snapshot_id = db.insert_snapshot(
             conn, hub["id"],
-            bio_text="\n".join(sorted({l.url for l in links})) or None,
-            display_name=None, followers_count=None, following_count=None,
+            # reextract skips hub_crawl snapshots, so bio_text is display +
+            # provenance only: the artist's own words first, then the links.
+            bio_text="\n\n".join(filter(None, [og_desc, link_list])) or None,
+            display_name=og_name, followers_count=None, following_count=None,
             raw={"url": hub["profile_url"], "status": resp.status_code,
                  "link_count": len(links)},
             fetch_source="hub_crawl",
         )
         stats["hubs_crawled"] += 1
+        # The description is self-authored bio text — mine it for the same
+        # per-account self-signals a platform bio yields.
+        if og_desc:
+            for signal, matched in find_attestations(og_desc):
+                db.upsert_attestation(conn, hub["id"], signal, matched, snapshot_id)
+                stats["hub_attestations"] += 1
+            for signal, matched in find_nsfw_flags(og_desc):
+                db.upsert_content_flag(conn, hub["id"], "nsfw", signal, matched,
+                                       snapshot_id)
+                stats["hub_nsfw_flags"] += 1
         # Commission status / contact email announced on the hub page itself
         # (link titles like "Commissions — OPEN"). Lower confidence than a bio.
         page_text = _TAG_STRIP.sub(" ", html)
@@ -309,6 +363,9 @@ def main() -> None:
     parser.add_argument("--max-hubs", type=int, default=100)
     parser.add_argument("--recrawl-all", action="store_true",
                         help="re-crawl every hub, not just new/failed ones")
+    parser.add_argument("--recrawl-platform",
+                        help="re-crawl every hub on ONE platform slug (e.g. "
+                             "potofu after an extraction upgrade)")
     args = parser.parse_args()
 
     stats: Counter = Counter()
@@ -326,6 +383,13 @@ def main() -> None:
                        from platforms p
                        where p.id = a.platform_id and p.kind = 'link_hub'
                          and a.status <> 'deleted'""")
+            elif args.recrawl_platform:
+                cur.execute(
+                    """update accounts a set last_hydrated = null
+                       from platforms p
+                       where p.id = a.platform_id and p.slug = %s
+                         and a.status <> 'deleted'""",
+                    (args.recrawl_platform,))
             else:
                 cur.execute(
                     """update accounts a set last_hydrated = null

@@ -112,10 +112,15 @@ robots + content signals honored.
 
 ## Quick verdicts on the rest
 
-- **Xfolio (xfolio.jp)** — 87 accounts in DB. robots `*` only blocks
-  `/api/`+internals; portfolio pages are fetchable. Needs a parse scout
-  (server-rendered?) — candidate for the same enrichment-only treatment as
-  patreon pages.
+- **Xfolio (xfolio.jp)** — 93 accounts in DB. **NO-GO (probed live
+  2026-07-22)**: robots `*` looks permissive, but every portfolio page
+  303s fresh clients to `/system/recaptcha?creator_code=…` regardless of
+  UA (plain and full browser headers both bounce) — a sitewide CAPTCHA
+  wall we never circumvent. Wayback is no escape hatch: the archive's own
+  crawls got the same 303s, and the few archived 200s are client-rendered
+  shells (generic og:title "トップページ - Portfolio", zero external
+  links, no profile data). Stays a display/link platform like instagram;
+  revisit only if xfolio ships an API or drops the wall.
 - **FurAffinity** — robots allows `*` with Crawl-delay 1 (only AI bots
   blocked), fully server-rendered profiles with contact fields. But their
   ToS has historically banned scraping — resolve that contradiction before

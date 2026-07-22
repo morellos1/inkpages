@@ -105,18 +105,32 @@ Tag on existing rows adopts weak vias (bio_link/bio_mention/link_hub/
 hydration → manual_tag) and lifts hidden/deleted; roster vias stay. Build:
 `cd xtag && npm install && npm run build`, load unpacked `xtag/extension/`.
 
+**Xfolio: NO-GO (probed 2026-07-22 evening)** — every portfolio page 303s
+fresh clients to a sitewide reCAPTCHA wall regardless of UA; Wayback copies
+are the same bounces or client-rendered shells with zero profile data. We
+never circumvent bot protection: xfolio stays a display/link platform
+(details in docs/source-scouting.md).
+
+**Potofu hydration live (2026-07-22 evening)**: potofu og tags carry real
+profile data (og:title = name, og:image = icon, og:description = the
+artist's own bio). `crawl_links` now captures them for `PROFILE_OG_HUBS`
+(potofu only so far — linktree/carrd og tags are banners/boilerplate, never
+capture those): display_name (POTOFU suffixes stripped), avatar
+(default_profile placeholders skipped), description prepended to the
+hub snapshot bio_text (safe: reextract skips hub_crawl snapshots) and mined
+for attestations/nsfw flags. `--recrawl-platform SLUG` re-queues one hub
+platform after extraction upgrades. 58/60 named, 38 avatared.
+
 **Next up (in priority order — user directive 2026-07-22 evening):**
 1. **Misskey cross-hydration** (598 held accounts, open per-instance API,
    free edges from profile fields[]).
-2. **Xfolio enrichment** (87 held accounts; see docs/source-scouting.md —
-   robots only blocks /fanbox paths, portfolio pages open).
-3. **Tumblr enrichment** — blocked on user registering a free API key
+2. **Tumblr enrichment** — blocked on user registering a free API key
    (tumblr.com/oauth/apps); 1,568 held accounts waiting.
-4. **Cara exploration** (aligned community; re-probe for an official API
+3. **Cara exploration** (aligned community; re-probe for an official API
    or openly served endpoints — never circumvent bot protection).
-5. **Work the review queues** (~135 pending) + the Demoted page (the 563
+4. **Work the review queues** (~135 pending) + the Demoted page (the 563
    vgen culls and 48 zine-sweep demotions may hide a few real artists).
-6. Recurring skims: DA popular rotation, vgen tier-1/2 re-walks
+5. Recurring skims: DA popular rotation, vgen tier-1/2 re-walks
    (--max-new bounded), pixiv tag rounds, bluesky list/starter-pack
    expansion.
 
