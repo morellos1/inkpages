@@ -109,10 +109,11 @@ TEMPLATES = {
   .livecount { float: right; font-size: .8em; color: #6b7280; }
 </style></head><body>
 <header>
-  <a class="brand" href="{{ url_for('index') }}">inkpages review</a>
-  <a href="{{ url_for('index') }}">Directory</a>
+  <a class="brand" href="{{ url_for('index') }}" data-dirlink>inkpages review</a>
+  <a href="{{ url_for('index') }}" data-dirlink>Directory</a>
   <a href="{{ url_for('review') }}">Review queue {% if pending %}<span class="pill">{{ pending }}</span>{% endif %}</a>
   <a href="{{ url_for('demoted') }}">Demoted {% if demoted_count %}<span class="pill">{{ demoted_count }}</span>{% endif %}</a>
+  <a href="{{ url_for('removed') }}">Removed</a>
   <a href="{{ url_for('sources') }}">Sources</a>
   <a href="{{ url_for('rules') }}">Rules</a>
 </header>
@@ -150,6 +151,30 @@ TEMPLATES = {
       dlg.showModal();
     });
   });
+})();
+</script>
+<script>
+// Directory filter persistence: the last-used query string (filters, sort,
+// page) and the Filters panel's open state survive navigating away — the
+// Directory nav links replay them.
+(function () {
+  if (location.pathname === '/') {
+    localStorage.setItem('dir:qs', location.search);
+    var d = document.querySelector('details.filters');
+    if (d) {
+      var saved = localStorage.getItem('dir:filtersOpen');
+      if (saved === '1') d.setAttribute('open', '');
+      else if (saved === '0') d.removeAttribute('open');
+      d.addEventListener('toggle', function () {
+        localStorage.setItem('dir:filtersOpen', d.open ? '1' : '0');
+      });
+    }
+  } else {
+    var qs = localStorage.getItem('dir:qs');
+    if (qs) document.querySelectorAll('a[data-dirlink]').forEach(function (a) {
+      a.href = '/' + qs;
+    });
+  }
 })();
 </script>
 <script>
@@ -213,6 +238,11 @@ document.querySelectorAll('.bio').forEach(function (box) {
     {% if s.region %}<span class="stat-chip">{{ s.region }}</span>{% endif %}
     {% if s.premium %}<span class="stat-chip good">premium</span>{% endif %}
     {% if s.official %}<span class="stat-chip good">official</span>{% endif %}
+  {% elif platform == 'patreon' %}
+    {% if s.paid_members %}<span class="stat-chip">{{ "{:,}".format(s.paid_members) }} paid members</span>{% endif %}
+    {% if s.monthly_earnings_usd %}<span class="stat-chip good">${{ "{:,}".format(s.monthly_earnings_usd) }}/mo</span>{% endif %}
+    {% if s.graphtreon_category %}<span class="stat-chip">{{ s.graphtreon_category }}</span>{% endif %}
+    {% if s.graphtreon_metric %}<span class="stat-chip">{{ s.graphtreon_metric | replace("top-patreon-", "top by ") | replace("top-creators-by-", "top by ") | replace("top-growing-patreon", "fastest growing") | replace("-", " ") }}</span>{% endif %}
   {% else %}
     {% for k, v in s.items() if v is not none %}<span class="stat-chip">{{ k }}: {{ v }}</span>{% endfor %}
   {% endif %}
@@ -375,7 +405,10 @@ attach/merge.</p>
   <td class="muted">{{ c.matched_text or c.evidence_url or "" }}</td>
   <td><form class="inline" method="post" action="{{ url_for('confirm_connection', artist_id=artist.id, account_id=c.other_id) }}"
        data-confirm="{% if c.other_artist_id %}Merge artist {{ c.other_artist_slug }} (via {{ c.other_platform }}:{{ c.other_handle }}) into this artist?{% else %}Confirm {{ c.other_platform }}:{{ c.other_handle }} as the same person and attach it to this artist?{% endif %}">{{ csrf() }}
-       <button class="ok">{{ 'merge' if c.other_artist_id else 'attach' }}</button></form></td>
+       <button class="ok">{{ 'merge' if c.other_artist_id else 'attach' }}</button></form>
+      <form class="inline" method="post" action="{{ url_for('dismiss_connection', artist_id=artist.id, account_id=c.other_id) }}"
+       data-confirm="Remove {{ c.other_platform }}:{{ c.other_handle }} from this artist's connections? It has no relation to the artist and will stay gone even if the link is re-extracted.">{{ csrf() }}
+       <button class="no">remove</button></form></td>
 </tr>{% else %}<tr><td colspan="7" class="muted">none</td></tr>{% endfor %}</table>
 
 <h2>Signals</h2>
@@ -406,6 +439,58 @@ puts an artist back in the directory and permanently exempts them from auto-demo
   <td><form class="inline" method="post" action="{{ url_for('restore', artist_id=a.id) }}">{{ csrf() }}
       <button class="ok">Restore</button></form></td>
 </tr>{% endfor %}</table>
+{% endblock %}""",
+
+"removed.html": """{% extends "base.html" %}{% import "_macros.html" as m %}{% block content %}
+<h1>Removed from the directory</h1>
+<p class="muted">Everything invisible to the public surface and why. Nothing here is
+deleted — snapshots, edges and memberships are all kept.</p>
+
+<h2>Suppressed artists ({{ suppressed|length }})</h2>
+<p class="muted">Explicit removals — opt-outs, impersonation, confirmed AI use. Lift from the artist page; a suppression survives re-discovery forever.</p>
+<table>{% if suppressed %}<tr><th>artist</th><th>reason</th><th>note</th><th>since</th></tr>{% endif %}
+{% for s in suppressed %}<tr>
+  <td><a href="{{ url_for('artist', artist_id=s.artist_id) }}"><b>{{ s.public_slug }}</b></a> <span class="muted">{{ s.display_name }}</span></td>
+  <td><span class="chip badge-suppressed">{{ s.reason }}</span></td>
+  <td class="muted">{{ s.note or "" }}</td>
+  <td>{{ s.created_at.date() }}</td>
+</tr>{% else %}<tr><td class="muted">none</td></tr>{% endfor %}</table>
+
+<h2>Suppressed accounts ({{ suppressed_accounts|length }})</h2>
+<p class="muted">Account-scoped: only this account is hidden, the artist stays listed.</p>
+<table>{% if suppressed_accounts %}<tr><th>account</th><th>artist</th><th>reason</th><th>note</th><th>since</th></tr>{% endif %}
+{% for s in suppressed_accounts %}<tr>
+  <td><span class="chip">{{ s.platform }}: {{ s.handle }}</span></td>
+  <td>{% if s.artist_id %}<a href="{{ url_for('artist', artist_id=s.artist_id) }}">{{ s.public_slug }}</a>{% else %}<span class="muted">—</span>{% endif %}</td>
+  <td><span class="chip badge-suppressed">{{ s.reason }}</span></td>
+  <td class="muted">{{ s.note or "" }}</td>
+  <td>{{ s.created_at.date() }}</td>
+</tr>{% else %}<tr><td class="muted">none</td></tr>{% endfor %}</table>
+
+<h2>Hidden accounts ({{ hidden|length }})</h2>
+<p class="muted">The standing verification cull: Twitter/Bluesky accounts under
+{{ cull_min }} followers (plus any manual hides). Unhide restores the account
+everywhere on the next pipeline run — but the cull will re-hide it unless the
+follower count has crossed {{ cull_min }}.</p>
+<table>{% if hidden %}<tr><th>account</th><th>followers</th><th>artist</th><th>discovered via</th><th></th></tr>{% endif %}
+{% for h in hidden %}<tr>
+  <td>{{ m.acct_link(h.platform, h.handle, h.profile_url, h.display_name) }}</td>
+  <td>{{ "{:,}".format(h.followers_count) if h.followers_count is not none else "—" }}</td>
+  <td>{% if h.artist_id %}<a href="{{ url_for('artist', artist_id=h.artist_id) }}">{{ h.public_slug }}</a>{% else %}<span class="muted">—</span>{% endif %}</td>
+  <td class="muted">{{ h.discovered_via }}</td>
+  <td><form class="inline" method="post" action="{{ url_for('unhide', account_id=h.id) }}"
+       data-confirm="Unhide {{ h.platform }}:{{ h.handle }}? It reappears in the directory (the pipeline cull may re-hide it if still under {{ cull_min }} followers).">{{ csrf() }}
+       <button class="ok">unhide</button></form></td>
+</tr>{% else %}<tr><td class="muted">none</td></tr>{% endfor %}</table>
+
+<h2>Artists with no visible accounts ({{ invisible|length }})</h2>
+<p class="muted">Active artists absent from the directory because every member
+account is hidden or deleted.</p>
+<table>{% if invisible %}<tr><th>artist</th><th>member accounts</th></tr>{% endif %}
+{% for a in invisible %}<tr>
+  <td><a href="{{ url_for('artist', artist_id=a.id) }}"><b>{{ a.public_slug }}</b></a> <span class="muted">{{ a.display_name }}</span></td>
+  <td class="muted">{{ a.accounts_summary }}</td>
+</tr>{% else %}<tr><td class="muted">none</td></tr>{% endfor %}</table>
 {% endblock %}""",
 
 "sources.html": """{% extends "base.html" %}{% block content %}
@@ -902,6 +987,7 @@ def index():
                 from directory_entries de, jsonb_array_elements(de.accounts) el
                 where el->>'platform' is not null group by 1) c
             join platforms pl on pl.slug = c.p
+            where c.p <> 'website'  -- every artist has one; useless as a facet
             order by pl.display_rank, c.n desc, c.p""")])
         lang_options = cached("lang_options", lambda: [r["language"] for r in q(conn,
             "select distinct language from directory_entries order by 1")])
@@ -933,6 +1019,67 @@ def demoted():
             order by followers desc nulls last""")
         return render_template("demoted.html", items=items,
                                pending=pending_count(conn), demoted_count=len(items))
+
+
+@app.route("/removed")
+def removed():
+    from . import policy
+    with db.connect() as conn:
+        suppressed = q(conn, """
+            select s.artist_id, s.reason, s.note, s.created_at,
+                   ar.public_slug, ar.display_name
+            from suppressions s join artists ar on ar.id = s.artist_id
+            where s.lifted_at is null and s.artist_id is not null
+            order by s.created_at desc""")
+        suppressed_accounts = q(conn, """
+            select s.reason, s.note, s.created_at, a.handle::text as handle,
+                   p.slug as platform, ar.id as artist_id, ar.public_slug
+            from suppressions s
+            join accounts a on a.id = s.account_id
+            join platforms p on p.id = a.platform_id
+            left join artist_accounts aa on aa.account_id = a.id and aa.removed_at is null
+            left join artists ar on ar.id = aa.artist_id
+            where s.lifted_at is null and s.account_id is not null
+            order by s.created_at desc""")
+        hidden = q(conn, """
+            select a.id, a.handle::text as handle, a.display_name, a.profile_url,
+                   a.followers_count, a.discovered_via, p.slug as platform,
+                   ar.id as artist_id, ar.public_slug
+            from accounts a
+            join platforms p on p.id = a.platform_id
+            left join artist_accounts aa on aa.account_id = a.id and aa.removed_at is null
+            left join artists ar on ar.id = aa.artist_id
+            where a.status = 'hidden'
+            order by a.followers_count desc nulls last, a.id""")
+        invisible = q(conn, """
+            select ar.id, ar.public_slug, ar.display_name,
+                   string_agg(p.slug || ':' || a.handle || ' (' || a.status || ')',
+                              ', ' order by a.id) as accounts_summary
+            from artists ar
+            join artist_accounts aa on aa.artist_id = ar.id and aa.removed_at is null
+            join accounts a on a.id = aa.account_id
+            join platforms p on p.id = a.platform_id
+            where ar.status = 'active' and ar.merged_into is null
+              and not exists (select 1 from directory_entries de where de.artist_id = ar.id)
+              and not exists (select 1 from suppressions s
+                              where s.artist_id = ar.id and s.lifted_at is null)
+            group by ar.id, ar.public_slug, ar.display_name
+            order by ar.id""")
+        return render_template("removed.html", suppressed=suppressed,
+                               suppressed_accounts=suppressed_accounts,
+                               hidden=hidden, invisible=invisible,
+                               cull_min=policy.CULL_MIN_FOLLOWERS,
+                               pending=pending_count(conn),
+                               demoted_count=demoted_count(conn))
+
+
+@app.route("/account/<int:account_id>/unhide", methods=["POST"])
+def unhide(account_id):
+    with db.connect() as conn, conn.cursor() as cur:
+        cur.execute("update accounts set status = 'active' where id = %s and status = 'hidden'",
+                    (account_id,))
+        conn.commit()
+    return redirect(url_for("removed"))
 
 
 # Plain-words metadata for /sources. Keyed by accounts.discovered_via;
@@ -1202,6 +1349,35 @@ def confirm_connection(artist_id, account_id):
                        (select account_id from artist_accounts
                         where artist_id = %(ar)s and removed_at is null)))""",
             {"acc": account_id, "ar": artist_id})
+        conn.commit()
+    return redirect(url_for("artist", artist_id=artist_id))
+
+
+@app.route("/artist/<int:artist_id>/dismiss/<int:account_id>", methods=["POST"])
+def dismiss_connection(artist_id, account_id):
+    """A human rules a connection is pure noise — no relation to the artist.
+    Every edge between the artist's members and that account is dismissed:
+    hidden everywhere and never resurrected by re-extraction (upsert_edge
+    skips rows whose status is 'dismissed')."""
+    with db.connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            """update identity_edges e
+               set status = 'dismissed', relation_hint = 'manual_dismiss'
+               where e.status = 'present'
+                 and ((e.target_account_id = %(acc)s and e.source_account_id in
+                       (select account_id from artist_accounts
+                        where artist_id = %(ar)s and removed_at is null))
+                   or (e.source_account_id = %(acc)s and e.target_account_id in
+                       (select account_id from artist_accounts
+                        where artist_id = %(ar)s and removed_at is null)))""",
+            {"acc": account_id, "ar": artist_id})
+        # Logged as an admin account_removed so the clustering guard also
+        # refuses to ever auto-attach this account to this artist.
+        cur.execute(
+            """insert into artist_events (artist_id, event, actor, details)
+               values (%s, 'account_removed', 'admin:review-ui', %s)""",
+            (artist_id, json.dumps({"account_id": account_id,
+                                    "reason": "connection_dismissed"})))
         conn.commit()
     return redirect(url_for("artist", artist_id=artist_id))
 

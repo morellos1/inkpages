@@ -16,8 +16,26 @@ Usage: uv run python -m inkpages.pipeline [--skip-hydrate]
 import argparse
 import sys
 
-from . import check_links, classify_region, cluster, crawl_links, db
+from . import check_links, classify_region, cluster, crawl_links, db, policy
 from .twitter import USER_READ_CENTS
+
+
+def cull_low_followers() -> None:
+    """Standing verification cull: hide twitter/bluesky accounts under
+    policy.CULL_MIN_FOLLOWERS. 'hidden' survives hydration and link checks;
+    unhide from the review UI's Removed page."""
+    with db.connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            """update accounts a set status = 'hidden'
+               from platforms p
+               where p.id = a.platform_id and p.slug in ('twitter', 'bluesky')
+                 and a.status = 'active' and a.followers_count is not null
+                 and a.followers_count < %s""",
+            (policy.CULL_MIN_FOLLOWERS,))
+        n = cur.rowcount
+        conn.commit()
+    if n:
+        print(f"culled {n} sub-{policy.CULL_MIN_FOLLOWERS}-follower accounts")
 
 
 def hydrate_free_platforms() -> None:
@@ -61,6 +79,7 @@ def main() -> None:
     crawl_links.main()
     sys.argv = ["check_links", "--limit", "200"]
     check_links.main()
+    cull_low_followers()
     sys.argv = ["cluster"]
     cluster.main()
     sys.argv = ["classify_region"]

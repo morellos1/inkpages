@@ -39,6 +39,13 @@ ANOMALY_CROSS_ARTIST_REFS = 3     # a MEMBER account with edges touching this
                                   # target that slipped in (tumblr.com/contact)
                                   # or several unmerged alts of one person
 
+# Standing verification cull: twitter/bluesky accounts under this many
+# followers are set status='hidden' (directory-invisible, data kept) on every
+# pipeline run. Originally a one-time migration-0016 action — accounts
+# hydrated afterwards were slipping back in. Reversible per account from the
+# review UI's Removed page.
+CULL_MIN_FOLLOWERS = 50
+
 # No post/repost within this window => the account is labeled dormant.
 # Mirrored in the directory_entries view (migration 0006) — keep in sync.
 DORMANT_AFTER_DAYS = 180

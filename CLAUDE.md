@@ -58,6 +58,22 @@ Follow-up session additions:
   `added_by='human'` (pipeline never closes those). Owned-by-another-artist
   pastes get pointed at the Connections merge flow instead.
   `discovered_via='manual'` has a SOURCE_META entry.
+- **Dismissable connections** (migration 0027): a `remove` button on
+  Connections rows sets edges to `status='dismissed'` — hidden everywhere,
+  and `upsert_edge`'s ON CONFLICT carries `where status is distinct from
+  'dismissed'` so re-extraction can NEVER resurrect them (the bio still
+  contains the link → conflict → update skipped). Dismissal also logs an
+  admin `account_removed` event, so clustering refuses future auto-attach.
+- **The sub-50 cull is now a standing pipeline step**
+  (`pipeline.cull_low_followers`, `policy.CULL_MIN_FOLLOWERS=50`) — it was a
+  one-time migration-0016 action and 18 accounts hydrated since had slipped
+  back in. **/removed page** (nav-linked) lists suppressed artists,
+  suppressed accounts, hidden accounts (with per-account unhide), and
+  artists invisible because every member account is hidden/deleted.
+- Review UI polish: directory filter state (query string) + Filters-panel
+  open state persist in localStorage — the Directory nav links replay them
+  from any page. `website` removed from the platform facet. Patreon stat
+  chips are human ("3,908 paid members", "$X/mo", bare category, no rank).
 
 ## Previous state (2026-07-21, post bugfix/optimization pass)
 

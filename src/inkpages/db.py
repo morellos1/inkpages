@@ -197,7 +197,10 @@ def upsert_edge(conn, source_account_id: int, target_account_id: int, *,
                              matched_text = excluded.matched_text,
                              claim = excluded.claim,
                              relation_hint = excluded.relation_hint,
-                             last_verified = now(), status = 'present'""",
+                             last_verified = now(), status = 'present'
+               -- A human dismissed this edge as pure noise; re-extraction of
+               -- the same bio link must never resurrect it.
+               where identity_edges.status is distinct from 'dismissed'""",
             (source_account_id, target_account_id, evidence_type,
              evidence_snapshot_id, evidence_url, matched_text, claim, relation_hint),
         )
