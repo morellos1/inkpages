@@ -10,7 +10,38 @@ is displayed strictly as the artist's own attestation, never our classification.
 Full brief: `~/Desktop/artist-directory-brief.md` (outside the repo). Design
 rationale: `docs/schema.md` and `docs/pipeline.md`.
 
-## Current state (2026-07-22, end of session — western discovery expansion)
+## Current state (2026-07-22 later session — bugfixes + gated hydration)
+
+**Directory 4,054 artists** (+71 today), ~26k accounts rows. Paid X spend
+**$59.14 of $100**. Review queue **120 pending** (81 singleton_gate + 34
+anomalies/other + 5 merges) + 67 artists in needs_review. Smoke green.
+
+- **Referrer-gated twitter hydration** (`hydrate_twitter.gated_handle_backlog`):
+  handle-only backlog rows need an artist-flavored voucher — a referrer that is
+  a listed artist's account, roster-discovered, or art-keyword-flavored (one
+  hop up through link hubs so carrd pages don't block vouching), and NOT
+  project-flavored (`looks_like_project`). Zine/big-bang/fanfic participant
+  rosters never earn a paid read; gated targets stay `unknown` at zero cost and
+  lift automatically if an artful referrer appears. This **fixed frontier
+  economics**: 4 gated rounds yielded +71 artists at ~$6.9 (pre-gate ring 3 was
+  0 artists). Yield collapsed again in round 4 (+2 from 230 reads) — **196
+  hydratable (~$1.96) + 650 gated left intentionally**; work roster sources
+  and the singleton_gate queue instead.
+- **artstation.com/artist/<name>** (old-style profile URLs) now parse the real
+  handle; bare `/artist` + more reserved paths excluded. The junk shared
+  'artist' account (id 8952) is hidden, its edges retracted, real accounts
+  recovered via reextract.
+- **Review-UI**: bios/cells wrap unbroken runs (`overflow-wrap: anywhere` —
+  one wide bio used to stretch every table); buttons stay single-line;
+  select-all header checkboxes on the artist-page accounts + connections bulk
+  forms (`input[data-checkall="<form id>"]` helper in base.html).
+- **Merge/approve 500s were NOT a code bug**: a stale server process (started
+  before the component-gate commit) had the old `extract` module in memory;
+  first merge/approve lazily imported the new `cluster.py`, whose
+  `from .extract import looks_like_project` hit ImportError. **Restart the
+  review UI after committing code the running server hasn't imported yet.**
+
+## Previous state (2026-07-22, end of session — western discovery expansion)
 
 **Directory 3,983 artists** (2,601 → 3,983 today; lang_en ~2,039 vs ~635
 yesterday — the western cohort tripled). ~17.5k accounts. Paid X spend
