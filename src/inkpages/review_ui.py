@@ -556,6 +556,16 @@ artist's own links — they only appear as part of an artist, never alone.</p>
          <span class="muted">{{ "{:,}".format(s.accounts) }} accounts</span></div>
   </div>
   <p class="muted" style="margin:.4rem 0 0">{{ s.description }}</p>
+  {% if s.derivation %}
+  <p style="margin:.4rem 0 0;font-size:.9em"><b>How it's derived:</b>
+    <span class="muted">{{ s.derivation }}</span></p>
+  {% endif %}
+  {% if s.breakdown %}
+  <div class="statline" style="margin-top:.45rem">
+    {% for label, n in s.breakdown.rows %}<span class="stat-chip">{{ label }} · {{ "{:,}".format(n) }}</span>{% endfor %}
+    {% if s.breakdown.more[0] %}<span class="stat-chip">+{{ s.breakdown.more[0] }} more · {{ "{:,}".format(s.breakdown.more[1]) }}</span>{% endif %}
+  </div>
+  {% endif %}
   <div style="margin-top:.4rem">
     <span class="chip">{{ 'primary source' if s.primary else 'follow-on' }}</span>
     <span class="chip">{{ s.cost }}</span>
@@ -1183,6 +1193,89 @@ SOURCE_META = {
 }
 
 
+# Exact derivation recipe per source — how the roster is assembled, knob for
+# knob. Rendered on /sources under the plain-words description.
+SOURCE_DERIVATION = {
+    "skeb_ranking": "Skeb's Algolia creator ranking, genre=art, taken to rank "
+        "1000. Each creator page also yields their OAuth-verified twitter_uid.",
+    "pixiv_ranking": "pixiv daily/weekly illustration rankings, ~6 pages "
+        "(≈300 works) per run; R18 ranking pages when the premium session is "
+        "set. Reruns skim the daily rotation.",
+    "pixiv_tag_search": "Premium popularity sort (popular_d) over named tags, "
+        "5 pages × 60 works per tag per run; works the author flagged as "
+        "AI-generated (ai_type=1) are excluded before parsing. Tag totals below.",
+    "bsky_feed": "The author roster of named art feed generators, 100 posts "
+        "per feed per run. Feed totals below.",
+    "portfolioday": "Paid X recent search over the query below, capped at "
+        "--max-posts per run; open harvest, so authors additionally need "
+        "artist evidence before listing alone.",
+    "portfolioday_mention": "Accounts @-mentioned by #PortfolioDay posts "
+        "(same runs as above).",
+    "patreon_ranking": "Graphtreon top lists: 4 metrics × 6 art categories "
+        "(drawing-painting / comics / animation, SFW + adult), ~100 rows "
+        "each; best chart position wins, any adult-category sighting sets "
+        "the 18+ platform flag. Category totals below.",
+    "artstation_ranking": "ArtStation community trending JSON, dimension "
+        "2d → 3d → all, 100/page to feed depth (~500/run).",
+    "deviantart_popular": "Popular RSS feeds (overall + digitalart / "
+        "traditional / fanart + search-term variants), 60 items/page, feeds "
+        "paginate ~6 pages; distinct authors in first-appearance order. "
+        "Feeds rotate daily — reruns accumulate.",
+    "vgen_marketplace": "All ~1,044 category/subject/style listing pages "
+        "from VGen's sitemap, each contributing its top-20 relevance-ranked "
+        "services; distinct artists then rank by best client review count "
+        "and the top N are minted (this cohort: reviews 17 min / 32 median "
+        "/ 657 max). Listing totals below count every listing an artist "
+        "surfaced on.",
+}
+
+# Live provenance breakdowns (label, artists) straight from
+# discovery_details / platform_stats — which tag, feed, category or query
+# actually produced the accounts.
+SOURCE_BREAKDOWN_SQL = {
+    "pixiv_tag_search": """
+        select (discovery_details ->> 'tag')
+               || case when (discovery_details ->> 'r18')::bool
+                       then ' · R18' else '' end as label, count(*) as count
+        from accounts where discovered_via = 'pixiv_tag_search'
+        group by 1 order by 2 desc""",
+    "pixiv_ranking": """
+        select coalesce(discovery_details ->> 'mode', 'ranking')
+               || case when coalesce((discovery_details ->> 'r18')::bool, false)
+                       then ' · R18' else '' end as label, count(*) as count
+        from accounts where discovered_via = 'pixiv_ranking'
+        group by 1 order by 2 desc""",
+    "bsky_feed": """
+        select coalesce(discovery_details ->> 'name', '(unnamed feed)') as label, count(*) as count
+        from accounts where discovered_via = 'bsky_feed'
+        group by 1 order by 2 desc""",
+    "portfolioday": """
+        select coalesce(discovery_details ->> 'query', '(query not recorded)') as label, count(*) as count
+        from accounts where discovered_via = 'portfolioday'
+        group by 1 order by 2 desc""",
+    "patreon_ranking": """
+        select coalesce(discovery_details ->> 'category', '?') as label, count(*) as count
+        from accounts where discovered_via = 'patreon_ranking'
+        group by 1 order by 2 desc""",
+    "artstation_ranking": """
+        select 'trending · ' || coalesce(discovery_details ->> 'dimension', '?') as label, count(*) as count
+        from accounts where discovered_via = 'artstation_ranking'
+        group by 1 order by 2 desc""",
+    "deviantart_popular": """
+        select coalesce(discovery_details ->> 'feed', 'popular (feed not recorded)') as label, count(*) as count
+        from accounts where discovered_via = 'deviantart_popular'
+        group by 1 order by 2 desc""",
+    "vgen_marketplace": """
+        select cat as label, count(*) as count
+        from accounts, lateral jsonb_array_elements_text(
+             coalesce(platform_stats -> 'vgen_categories', '[]'::jsonb)) cat
+        where discovered_via = 'vgen_marketplace'
+        group by 1 order by 2 desc""",
+}
+
+_BREAKDOWN_SHOWN = 14
+
+
 @app.route("/sources")
 def sources():
     with db.connect() as conn:
@@ -1193,12 +1286,24 @@ def sources():
             left join artist_accounts aa on aa.account_id = a.id and aa.removed_at is null
             group by 1""")
         max_artists = max((r["artists"] for r in rows), default=1) or 1
+        breakdowns: dict[str, list] = {}
+        for src, sql in SOURCE_BREAKDOWN_SQL.items():
+            b = q(conn, sql)
+            if b:
+                shown = b[:_BREAKDOWN_SHOWN]
+                rest = b[_BREAKDOWN_SHOWN:]
+                breakdowns[src] = {
+                    "rows": [(r["label"], r["count"]) for r in shown],
+                    "more": (len(rest), sum(r["count"] for r in rest)),
+                }
         entries = []
         for r in rows:
             label, primary, cost, description, rules = SOURCE_META.get(
                 r["source"], (r["source"], False, "free", "", []))
             entries.append({**r, "label": label, "primary": primary, "cost": cost,
                             "description": description, "rules": rules,
+                            "derivation": SOURCE_DERIVATION.get(r["source"]),
+                            "breakdown": breakdowns.get(r["source"]),
                             "pct": max(1, round(100 * r["artists"] / max_artists))})
         entries.sort(key=lambda e: (not e["primary"], -e["artists"]))
         return render_template("sources.html", sources=entries,

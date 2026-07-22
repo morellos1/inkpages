@@ -207,11 +207,18 @@ def upsert_edge(conn, source_account_id: int, target_account_id: int, *,
 
 
 def set_platform_stats(conn, account_id: int, stats: dict) -> None:
+    """Merge keys into platform_stats. Merge, never replace: harvest and
+    hydration write different keys for the same account (vgen_reviews from
+    the listing walk, vgen_tags from the profile fetch) and the second
+    writer must not wipe the first's."""
     import json
 
     with conn.cursor() as cur:
-        cur.execute("update accounts set platform_stats = %s where id = %s",
-                    (json.dumps(stats), account_id))
+        cur.execute(
+            """update accounts
+               set platform_stats = coalesce(platform_stats, '{}'::jsonb) || %s
+               where id = %s""",
+            (json.dumps(stats), account_id))
 
 
 def set_avatar(conn, account_id: int, url: str | None) -> None:

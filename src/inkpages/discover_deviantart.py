@@ -145,14 +145,22 @@ def harvest(conn, client, platforms, stats, top: int) -> None:
     authors: dict[str, dict] = {}
     pages = 0
     feeds = iter(FEED_QUERIES)
-    url = f"{RSS}?type=deviation&q={next(feeds)}"
+    current_q = next(feeds)
+    url = f"{RSS}?type=deviation&q={current_q}"
     retried = False
+
+    def feed_label(q: str) -> str:
+        # "boost%3Apopular+in%3Adigitalart" -> "digitalart",
+        # "illustration+boost%3Apopular" -> "illustration", bare -> "popular"
+        from urllib.parse import unquote_plus
+        terms = [t for t in unquote_plus(q).split() if t != "boost:popular"]
+        return terms[0].removeprefix("in:") if terms else "popular"
     while len(authors) < top and pages < 120:
         if url is None:
-            q = next(feeds, None)
-            if q is None:
+            current_q = next(feeds, None)
+            if current_q is None:
                 break
-            url = f"{RSS}?type=deviation&q={q}"
+            url = f"{RSS}?type=deviation&q={current_q}"
             retried = False
         time.sleep(2.0)
         resp = fetch_page(client, url)
@@ -186,6 +194,7 @@ def harvest(conn, client, platforms, stats, top: int) -> None:
                 "avatar": avatars[0] if avatars else None,
                 "adult": False,
                 "rank": len(authors) + 1,   # first-appearance order
+                "feed": feed_label(current_q),
                 "items": 0,
             })
             row["items"] += 1
@@ -205,6 +214,7 @@ def harvest(conn, client, platforms, stats, top: int) -> None:
             profile_url=f"https://www.deviantart.com/{row['username'].lower()}",
             discovered_via="deviantart_popular",
             discovery_details={"source": "rss_popular", "rank": row["rank"],
+                               "feed": row["feed"],
                                "items_on_feed": row["items"]},
         )
         stats["accounts"] += 1
