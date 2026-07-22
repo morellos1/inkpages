@@ -80,19 +80,30 @@ UI polish -> TikTok -> vgen tier-1/2 cull. Key durable facts:
   imported** — a stale process mixing old modules with new imports was
   the entire "merge/approve 500" mystery (ImportError on lazy import).
 
-**Next up (in priority order):**
-1. **Itaku worker** (open public JSON API, anti-genAI-aligned community —
-   see docs/source-scouting.md; roster via images-by-likes, profiles carry
-   user_sites/followers/tags).
-2. **Misskey cross-hydration** (598 held accounts, open per-instance API,
+**Next up (in priority order — user directive 2026-07-22 evening):**
+1. **Misskey cross-hydration** (598 held accounts, open per-instance API,
    free edges from profile fields[]).
-3. **Work the review queues** (~135 pending) + the Demoted page (the 563
-   vgen culls and 48 zine-sweep demotions may hide a few real artists).
-4. **Tumblr enrichment** — blocked on user registering a free API key
+2. **Xfolio enrichment** (87 held accounts; see docs/source-scouting.md —
+   robots only blocks /fanbox paths, portfolio pages open).
+3. **Tumblr enrichment** — blocked on user registering a free API key
    (tumblr.com/oauth/apps); 1,568 held accounts waiting.
-5. Recurring skims: DA popular rotation, vgen tier-1/2 re-walks
+4. **Cara exploration** (aligned community; re-probe for an official API
+   or openly served endpoints — never circumvent bot protection).
+5. **Work the review queues** (~135 pending) + the Demoted page (the 563
+   vgen culls and 48 zine-sweep demotions may hide a few real artists).
+6. Recurring skims: DA popular rotation, vgen tier-1/2 re-walks
    (--max-new bounded), pixiv tag rounds, bluesky list/starter-pack
-   expansion. Cara: watch for their official API.
+   expansion.
+
+**Itaku: skipped entirely** (user directive 2026-07-22 — do not build the
+itaku worker despite the favorable scouting notes).
+
+**Candidate paid X harvest (user-proposed, undecided)**: @Artistreccs
+follows ~65k accounts, est. 80-90% artists. True top-500-by-followers
+needs all 65k user reads (~$650 at 1¢/read) — over budget. Cheaper cuts:
+most-recent-N follows ($1/100), or timeline RT-harvest (posts 0.5¢,
+authors free via expansion). Needs a new `following()`/timeline method in
+`twitter.py` XApi. Awaiting user's budget call.
 
 ## Previous state (2026-07-22, end of session — western discovery expansion)
 

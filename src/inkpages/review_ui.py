@@ -341,7 +341,7 @@ document.querySelectorAll('.bio').forEach(function (box) {
   <td>{% if a.avatar_url %}<img src="{{ img_src(a.avatar_url) }}" width="36" height="36" style="border-radius:50%;object-fit:cover" loading="lazy">{% endif %}</td>
   {# When the slug is an opaque pixiv id, lead with the human name. #}
   {%- set id_slug = a.public_slug.isdigit() and a.display_name -%}
-  <td class="trunc" title="{{ a.display_name }} /{{ a.public_slug }}"><a href="{{ url_for('artist', artist_id=a.artist_id) }}"><b>{{ a.display_name if id_slug else a.public_slug }}</b></a><br>
+  <td class="trunc" title="{{ a.display_name }} /{{ a.public_slug }}"><a href="{{ url_for('artist', artist_id=a.artist_id) }}" target="_blank" rel="noopener"><b>{{ a.display_name if id_slug else a.public_slug }}</b></a><br>
       <span class="muted">{{ ('/' ~ a.public_slug) if id_slug else a.display_name }}</span></td>
   <td class="nowrap">{{ a.language }}</td>
   <td class="nowrap">{{ "{:,}".format(a.followers) if a.followers else "—" }}</td>
