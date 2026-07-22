@@ -8,7 +8,9 @@ those self-published claims into identity clusters with full provenance. "No AI"
 is displayed strictly as the artist's own attestation, never our classification.
 
 Full brief: `~/Desktop/artist-directory-brief.md` (outside the repo). Design
-rationale: `docs/schema.md` and `docs/pipeline.md`.
+rationale: `docs/schema.md` and `docs/pipeline.md`. Untapped-source scouting
+(vgen/itaku/misskey/tumblr next; cara+mihuashi+instagram no-go, with reasons):
+`docs/source-scouting.md` (probed live 2026-07-22).
 
 ## Current state (2026-07-22 latest — project purge + DeviantArt)
 
