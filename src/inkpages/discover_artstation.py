@@ -18,6 +18,7 @@ worker takes only what the open surface offers:
 Usage: uv run python -m inkpages.discover_artstation --max-new 500
 """
 import argparse
+import json
 import time
 from collections import Counter
 
@@ -25,6 +26,8 @@ import httpx
 
 from . import db
 from .crawl_links import UA
+from .extract import (find_attestations, find_nsfw_flags,
+                      find_platform_links, find_website_links)
 
 TRENDING = "https://www.artstation.com/api/v2/community/explore/projects/trending.json"
 # 2d first: illustration/concept art is the directory's demographic; 'all'
@@ -45,6 +48,138 @@ def fetch_trending(client, dimension: str, page: int) -> list[dict]:
         return resp.json().get("data") or []
     except ValueError:
         return []
+
+
+WB_AVAILABLE = "https://archive.org/wayback/available"
+# Dedicated social-URL fields on the profile JSON (the social_profiles array
+# mostly duplicates these; both are scanned, edges dedupe).
+_URL_FIELDS = ("twitter_url", "instagram_url", "tumblr_url", "twitch_url",
+               "youtube_url", "deviantart_url", "behance_url", "website_url",
+               "pinterest_url", "sketchfab_url", "vimeo_url")
+
+
+def _merge_stats(conn, account_id: int, patch: dict) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            """update accounts
+               set platform_stats = coalesce(platform_stats, '{}'::jsonb) || %s
+               where id = %s""", (json.dumps(patch), account_id))
+
+
+def wayback_enrich(conn, client, platforms, limit, stats) -> None:
+    """ArtStation bot-walls its live profiles, but the Internet Archive holds
+    organically captured copies of many users/{u}.json responses — the
+    artist's own published profile, read from a public archive without
+    touching ArtStation's wall. (We deliberately do NOT mass-request fresh
+    Save-Page-Now captures: that would just proxy-fetch around their bot
+    protection.) Coverage skews to well-known artists; misses are remembered.
+
+    Hits yield the full profile: social URLs -> profile_field same_person
+    edges (user-entered, normal guards), headline -> bio extraction,
+    follower count, stable id. Evidence carries the archive timestamp."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """select a.id, a.handle::text from accounts a
+               join platforms p on p.id = a.platform_id
+               where p.slug = 'artstation' and a.status not in ('deleted', 'hidden')
+                 and not (coalesce(a.platform_stats, '{}'::jsonb) ? 'wayback_checked')
+               order by exists (select 1 from artist_accounts aa
+                                where aa.account_id = a.id
+                                  and aa.removed_at is null) desc, a.id
+               limit %s""", (limit,))
+        todo = cur.fetchall()
+    print(f"wayback enrich: {len(todo)} artstation accounts to check")
+    for n, (account_id, handle) in enumerate(todo, 1):
+        time.sleep(1.0)
+        try:
+            avail = client.get(WB_AVAILABLE, params={
+                "url": f"artstation.com/users/{handle}.json"}, timeout=20).json()
+        except (httpx.HTTPError, ValueError):
+            stats["wb_avail_failed"] += 1
+            continue
+        closest = (avail.get("archived_snapshots") or {}).get("closest") or {}
+        if not closest.get("available"):
+            _merge_stats(conn, account_id, {"wayback_checked": True,
+                                            "wayback_archived": False})
+            stats["wb_not_archived"] += 1
+            continue
+        ts = closest["timestamp"]
+        archive_url = (f"https://web.archive.org/web/{ts}id_/"
+                       f"https://www.artstation.com/users/{handle}.json")
+        try:
+            data = client.get(archive_url, timeout=30,
+                              follow_redirects=True).json()
+        except (httpx.HTTPError, ValueError):
+            stats["wb_fetch_failed"] += 1  # not marked checked — retried next run
+            continue
+
+        bio = data.get("headline") or ""
+        account_id = db.get_or_create_account(
+            conn, platforms["artstation"],
+            native_id=str(data["id"]) if data.get("id") else None,
+            handle=data.get("username") or handle,
+            display_name=data.get("full_name"),
+            profile_url=f"https://www.artstation.com/{handle}",
+            followers_count=data.get("followers_count"),
+            discovered_via="bio_link",  # first discovery wins anyway
+            hydrated=True,
+        )
+        snapshot_id = db.insert_snapshot(
+            conn, account_id, bio_text=bio or None,
+            display_name=data.get("full_name"),
+            followers_count=data.get("followers_count"), following_count=None,
+            raw={"wayback_timestamp": ts, "archive_url": archive_url,
+                 "social_profiles": data.get("social_profiles"),
+                 **{k: data.get(k) for k in _URL_FIELDS + ("headline", "city",
+                                                           "country", "skills")}},
+            fetch_source="artstation:wayback",
+        )
+        _merge_stats(conn, account_id, {"wayback_checked": True,
+                                        "wayback_archived": ts[:8]})
+        with conn.cursor() as cur:
+            # The archived avatar URL is stale-but-real; only fill a gap.
+            cur.execute("""update accounts set avatar_url = coalesce(avatar_url, %s)
+                           where id = %s""",
+                        (data.get("medium_avatar_url"), account_id))
+        for signal, matched in find_attestations(bio):
+            db.upsert_attestation(conn, account_id, signal, matched, snapshot_id)
+        for signal, matched in find_nsfw_flags(bio):
+            db.upsert_content_flag(conn, account_id, "nsfw", signal, matched,
+                                   snapshot_id)
+
+        urls = [data.get(k) for k in _URL_FIELDS]
+        urls += [s.get("url") for s in data.get("social_profiles") or []
+                 if s.get("social_network") != "public_email"]
+        emitted: set[int] = set()
+        for url in dict.fromkeys(u for u in urls if u and "*" not in u):
+            for link in find_platform_links(url) + find_website_links(url):
+                platform_id = platforms.get(link.platform)
+                if platform_id is None or link.platform == "artstation":
+                    continue
+                target_id = db.get_or_create_account(
+                    conn, platform_id, native_id=link.native_id,
+                    handle=link.handle or link.native_id, profile_url=link.url,
+                    discovered_via="bio_link",
+                    discovery_details={"source_account_id": account_id,
+                                       "via": "artstation_wayback"})
+                if target_id == account_id or target_id in emitted:
+                    continue
+                emitted.add(target_id)
+                claim = "related" if link.platform == "website" else "same_person"
+                db.upsert_edge(conn, account_id, target_id,
+                               evidence_type="profile_field",
+                               evidence_snapshot_id=snapshot_id,
+                               evidence_url=link.url,
+                               matched_text=f"archived {ts[:8]}",
+                               claim=claim,
+                               relation_hint="website" if claim == "related" else None)
+                stats["wb_edges"] += 1
+        stats["wb_enriched"] += 1
+        if n % 25 == 0:
+            conn.commit()
+            print(f"  …{n} checked ({stats['wb_enriched']} archived)")
+    db.log_api_usage(conn, "wayback", "artstation-users", len(todo), 0)
+    conn.commit()
 
 
 def enrich_known(conn, client, platforms, stats) -> None:
@@ -105,14 +240,22 @@ def main() -> None:
     parser.add_argument("--enrich-known", action="store_true",
                         help="full-depth trending sweep that refreshes only "
                              "accounts already in the db; creates nothing")
+    parser.add_argument("--wayback-enrich", action="store_true",
+                        help="pull archived users/{u}.json profiles from the "
+                             "Internet Archive (social links, followers, bio)")
+    parser.add_argument("--limit", type=int, default=700,
+                        help="max accounts per wayback-enrich run")
     args = parser.parse_args()
 
     stats: Counter = Counter()
     with httpx.Client(headers={**UA, "Accept": "application/json"},
                       follow_redirects=True) as client, db.connect() as conn:
         platforms = db.platform_ids(conn)
-        if args.enrich_known:
-            enrich_known(conn, client, platforms, stats)
+        if args.enrich_known or args.wayback_enrich:
+            if args.enrich_known:
+                enrich_known(conn, client, platforms, stats)
+            if args.wayback_enrich:
+                wayback_enrich(conn, client, platforms, args.limit, stats)
             print("done:", dict(stats))
             return
         with conn.cursor() as cur:

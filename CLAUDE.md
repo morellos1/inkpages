@@ -10,7 +10,23 @@ is displayed strictly as the artist's own attestation, never our classification.
 Full brief: `~/Desktop/artist-directory-brief.md` (outside the repo). Design
 rationale: `docs/schema.md` and `docs/pipeline.md`.
 
-## Current state (2026-07-22, post ArtStation discovery)
+## Current state (2026-07-22b, post ArtStation Wayback enrichment)
+
+**ArtStation profile data DOES exist via the Internet Archive**
+(`discover_artstation --wayback-enrich`): the Archive holds organically
+captured `users/{u}.json` responses — full profiles (14 social-URL fields +
+social_profiles array, followers, headline). Availability API per handle →
+newest capture → profile_field edges with `archived YYYYMMDD` in
+matched_text. **We do not mass-request Save-Page-Now captures** (that would
+proxy-fetch around ArtStation's bot wall); only organically archived copies
+are read. First run: 574 checked, **34 archived (~6% — famous-name skew), 88
+social edges**; misses remembered (`wayback_archived:false`), avail-API
+failures retry. Hydration frontier rounds followed (335 paid twitter reads
+across 3 rounds ≈ $3.4): **directory 3,956 → 4,008, spend $42.72 of $100,
+review queue 33, backlog left at 285 (~$2.85, next session's rule covers
+it).** lang_en ~2,020.
+
+## Previous state (2026-07-22, post ArtStation discovery)
 
 **ArtStation discovery is live** (`discover_artstation.py`): the community
 trending feed (`/api/v2/community/explore/projects/trending.json`,
