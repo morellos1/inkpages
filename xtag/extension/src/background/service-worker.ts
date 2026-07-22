@@ -11,6 +11,7 @@ interface Settings {
 const DEFAULT_SETTINGS: Settings = { baseUrl: "http://127.0.0.1:8322", token: "" };
 const STATUS_TTL_MS = 60_000;
 const STATUS_CHUNK = 200;
+const WRITE_CHUNK = 400;
 
 const statusCache = new Map<string, { info: XtagInfo; ts: number }>();
 
@@ -51,6 +52,33 @@ function cacheAccounts(accounts: Record<string, XtagInfo>): void {
   }
 }
 
+// Bulk tag/untag in chunks so one giant request can't time out or blow a
+// body limit. On a mid-run failure the accounts already processed are still
+// reported (partial: true + error), so the content script can keep the
+// unprocessed remainder selected instead of losing the user's progress.
+async function chunkedWrite(
+  path: string,
+  handles: string[],
+  extra: Record<string, unknown> = {},
+): Promise<{ accounts: Record<string, XtagInfo>; error?: string }> {
+  const accounts: Record<string, XtagInfo> = {};
+  for (let i = 0; i < handles.length; i += WRITE_CHUNK) {
+    const chunk = handles.slice(i, i + WRITE_CHUNK);
+    try {
+      const page = await api(path, { handles: chunk, ...extra });
+      cacheAccounts(page.accounts);
+      Object.assign(accounts, page.accounts);
+    } catch (error) {
+      return {
+        accounts,
+        error: `${error instanceof Error ? error.message : error} `
+          + `(${Object.keys(accounts).length}/${handles.length} processed)`,
+      };
+    }
+  }
+  return { accounts };
+}
+
 async function handleStatus(handles: string[]): Promise<Record<string, XtagInfo>> {
   const now = Date.now();
   const result: Record<string, XtagInfo> = {};
@@ -82,18 +110,15 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           break;
         }
         case "XTAG_TAG": {
-          const page = await api("/api/x/tag", {
-            handles: message.handles ?? [],
-            referrer: message.referrer ?? null,
-          });
-          cacheAccounts(page.accounts);
-          sendResponse({ ok: true, accounts: page.accounts });
+          const { accounts, error } = await chunkedWrite(
+            "/api/x/tag", message.handles ?? [], { referrer: message.referrer ?? null });
+          sendResponse({ ok: !error, accounts, partial: Boolean(error), error });
           break;
         }
         case "XTAG_UNTAG": {
-          const page = await api("/api/x/untag", { handles: message.handles ?? [] });
-          cacheAccounts(page.accounts);
-          sendResponse({ ok: true, accounts: page.accounts });
+          const { accounts, error } = await chunkedWrite(
+            "/api/x/untag", message.handles ?? []);
+          sendResponse({ ok: !error, accounts, partial: Boolean(error), error });
           break;
         }
         case "XTAG_QUEUE": {

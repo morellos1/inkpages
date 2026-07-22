@@ -76,6 +76,7 @@ export function createActionButton(handle: string): HTMLButtonElement {
     if (button.disabled) return;
     button.disabled = true;
     try {
+      let result;
       if (current.state === "listed") {
         const name = current.slug ? `@${handle} (artist /${current.slug})` : `@${handle}`;
         if (!window.confirm(
@@ -85,14 +86,15 @@ export function createActionButton(handle: string): HTMLButtonElement {
         )) {
           return;
         }
-        await untagHandles([handle]);
+        result = await untagHandles([handle]);
       } else if (current.state === "queued") {
-        await untagHandles([handle]);
+        result = await untagHandles([handle]);
       } else {
-        const result = await tagHandles([handle]);
-        const note = result[handle]?.note;
+        result = await tagHandles([handle]);
+        const note = result.accounts[handle]?.note;
         if (note) window.alert(`inkpages: ${note}`);
       }
+      if (result.error) window.alert(`inkpages x-tag: ${result.error}`);
     } catch (error) {
       console.error("[xtag] action failed", error);
       window.alert(`inkpages x-tag: ${error instanceof Error ? error.message : error}`);

@@ -54,24 +54,30 @@ export function getState(handle: string): Promise<XtagInfo> {
   });
 }
 
-export async function tagHandles(handles: string[]): Promise<Record<string, XtagInfo>> {
-  const { accounts } = await send({
-    type: "XTAG_TAG", handles, referrer: location.href,
-  });
-  for (const [h, info] of Object.entries(accounts as Record<string, XtagInfo>)) {
-    cache.set(h, info);
-  }
-  emitUpdated();
-  return accounts;
+// Tag/untag never throw away partial progress: whatever the server confirmed
+// is cached and returned even when a later chunk failed — callers keep the
+// unconfirmed remainder (the bulk bar leaves it selected).
+export interface WriteResult {
+  accounts: Record<string, XtagInfo>;
+  error?: string;
 }
 
-export async function untagHandles(handles: string[]): Promise<Record<string, XtagInfo>> {
-  const { accounts } = await send({ type: "XTAG_UNTAG", handles });
-  for (const [h, info] of Object.entries(accounts as Record<string, XtagInfo>)) {
+async function write(message: Record<string, unknown>): Promise<WriteResult> {
+  const response = await chrome.runtime.sendMessage(message);
+  const accounts = (response?.accounts ?? {}) as Record<string, XtagInfo>;
+  for (const [h, info] of Object.entries(accounts)) {
     cache.set(h, info);
   }
-  emitUpdated();
-  return accounts;
+  if (Object.keys(accounts).length > 0) emitUpdated();
+  return { accounts, error: response?.ok ? undefined : (response?.error ?? "request failed") };
+}
+
+export function tagHandles(handles: string[]): Promise<WriteResult> {
+  return write({ type: "XTAG_TAG", handles, referrer: location.href });
+}
+
+export function untagHandles(handles: string[]): Promise<WriteResult> {
+  return write({ type: "XTAG_UNTAG", handles });
 }
 
 export function clearLocalCache(): void {

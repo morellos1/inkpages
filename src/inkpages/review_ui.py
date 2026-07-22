@@ -1916,10 +1916,18 @@ _X_HANDLE_RE = re.compile(r"^[a-z0-9_]{1,15}$")
 _STATE_RANK = {"listed": 4, "queued": 3, "tracked": 2, "removed": 1}
 
 
+# Hard sanity bound only — a bulk select-all over a big following list is a
+# legitimate multi-thousand-handle request. NEVER silently truncate below it:
+# an early raw[:500] cap once ate 2,000 of a 2,500-handle bulk add.
+_MAX_HANDLES = 20_000
+
+
 def _clean_handles(payload) -> list[str]:
     raw = (payload or {}).get("handles") or []
+    if len(raw) > _MAX_HANDLES:
+        abort(413)
     seen, out = set(), []
-    for h in raw[:500]:
+    for h in raw:
         h = str(h).strip().lstrip("@").lower()
         if _X_HANDLE_RE.match(h) and h not in seen:
             seen.add(h)
@@ -1989,6 +1997,7 @@ def api_x_tag():
     referrer = str(payload.get("referrer") or "")[:300] or None
     done: dict[str, dict] = {}
     with db.connect() as conn:
+        twitter_id = db.platform_ids(conn)["twitter"]
         states = _x_states(conn, handles)
         with conn.cursor() as cur:
             for h in handles:
@@ -2002,7 +2011,7 @@ def api_x_tag():
                     done[h] = {**info, "note": "suppressed — lift in review UI"}
                     continue
                 account_id = db.get_or_create_account(
-                    conn, db.platform_ids(conn)["twitter"], handle=h,
+                    conn, twitter_id, handle=h,
                     profile_url=f"https://x.com/{h}",
                     discovered_via="manual_tag",
                     discovery_details={"source": "x-tag", "referrer": referrer})
@@ -2143,7 +2152,9 @@ def api_x_flush():
 
 def main():
     print("x-tag API token:", tag_token())
-    app.run(host="127.0.0.1", port=PORT, debug=False)
+    # threaded: a bulk x-tag write must not block status lookups / page loads
+    # (each request opens its own DB connection, so this is safe).
+    app.run(host="127.0.0.1", port=PORT, debug=False, threaded=True)
 
 
 if __name__ == "__main__":
