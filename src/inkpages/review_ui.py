@@ -951,6 +951,13 @@ SOURCE_META = {
         "so these additionally need artist evidence (an art-flavored bio or "
         "their own links) before they're listed alone.",
         ["open harvest", "needs artist evidence"]),
+    "patreon_ranking": ("Graphtreon Patreon rankings", True, "free",
+        "Graphtreon's public per-category top lists of Patreon creators "
+        "(drawing & painting, comics, animation — including Patreon's "
+        "self-declared adult categories) by members, earnings and growth. "
+        "Each creator's own Patreon page then supplies their registered "
+        "social links.",
+        ["curated roster"]),
     "bio_link": ("Linked from an artist's profile", False, "free",
         "An account some artist linked in their bio or profile fields. It only "
         "appears as part of that artist once the link is strong enough — never "

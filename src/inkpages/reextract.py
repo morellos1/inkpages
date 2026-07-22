@@ -36,7 +36,11 @@ def latest_snapshots(conn):
                from account_snapshots s
                join accounts a on a.id = s.account_id
                join platforms p on p.id = a.platform_id
-               where p.kind <> 'link_hub' and s.fetch_source <> 'hub_crawl'
+               where p.kind <> 'link_hub'
+                 -- hub pages and graphtreon ranking rows are not bios: the
+                 -- blurb is truncated marketing copy and must never drive
+                 -- bio_link retraction against the real profile's links.
+                 and s.fetch_source not in ('hub_crawl', 'graphtreon:ranking')
                order by s.account_id, s.captured_at desc"""
         )
         return cur.fetchall()
