@@ -73,6 +73,8 @@ ROSTER_SOURCES = {
     # Charting on ArtStation's community trending feed — roster-grade like
     # a pixiv ranking; profiles are bot-walled so these arrive with no edges.
     "artstation_ranking",
+    # Charting on DeviantArt's Popular RSS feed (official public backend).
+    "deviantart_popular",
     "convention_list",
     "platform_roster",  # Cara / ArtStation / DeviantArt / XFolio enumerations
 }

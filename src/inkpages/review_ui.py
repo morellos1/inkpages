@@ -801,7 +801,8 @@ COMMS_SQL = {
 COMMS_LABELS = [("skeb", "skeb open"), ("pixiv", "pixiv open"), ("bio", "bio-attested")]
 
 # Sources an artist can be discovered through (directory_entries.sources).
-SOURCE_OPTIONS = ["skeb", "bluesky", "twitter", "pixiv", "patreon", "artstation"]
+SOURCE_OPTIONS = ["skeb", "bluesky", "twitter", "pixiv", "patreon", "artstation",
+                  "deviantart"]
 
 # Avatar CDNs that 403 without a Referer — proxied through /img (see img_proxy).
 PROXY_HOSTS = ("i.pximg.net", "s.pximg.net")
@@ -1155,6 +1156,12 @@ SOURCE_META = {
         "and portfolio only — their other accounts connect when the artist's "
         "own bios elsewhere link back to ArtStation.",
         ["curated by trending", "no profile fetch"]),
+    "deviantart_popular": ("DeviantArt popular", True, "free",
+        "Artists charting on DeviantArt's Popular feed (official public RSS "
+        "backend). Each artist's own About page then supplies their "
+        "registered social links, watcher count and bio — including "
+        "DeviantArt's per-work maturity flags.",
+        ["curated by popularity", "full profile fetch"]),
     "manual": ("Added by hand", False, "free",
         "An account a human attached from the artist page (pasted profile "
         "URL). Human decisions are never undone by the pipeline.",
