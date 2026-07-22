@@ -12,7 +12,35 @@ rationale: `docs/schema.md` and `docs/pipeline.md`. Untapped-source scouting
 (vgen/itaku/misskey/tumblr next; cara+mihuashi+instagram no-go, with reasons):
 `docs/source-scouting.md` (probed live 2026-07-22).
 
-## Current state (2026-07-22 latest — project purge + DeviantArt)
+## Current state (2026-07-22 latest+1 — VGen landed)
+
+**Directory 5,469 artists** (4,435 → 5,469; lang_en 3,388). Paid X spend
+$63.77. Review queue 109 pending. Migrations at 0031. **Twitter backlog
+$10.05 — just OVER the $10 standing rule, awaiting user approval.**
+
+- **VGen live** (`discover_vgen.py`, migration 0031): ~124k of 358k
+  sitemap users are artists (services sitemaps). No native top-N sort —
+  harvest walks all ~1,044 server-rendered category listings
+  (searchCategories sitemap; robots Content-Signal `use=reference`
+  permits), aggregates surfaced services per artist, ranks by client
+  totalReviews, mints top N (`vgen_marketplace`). 5,299 distinct seen,
+  top 1,000 minted, 1,153 profiles hydrated → 3,720 profile_field edges
+  (registered socials), 997 vgen-sourced directory entries.
+  `__NEXT_DATA__` yields userID→native_id, servicesStatus OPEN/CLOSED →
+  authoritative commission state (`vgen:services_status`, conf .95),
+  service tags → `platform_stats.vgen_tags`, mature services → nsfw
+  platform_flag. vgen→vgen bio links = related `same_platform_mention`.
+  vgen:profile snapshots stay IN reextract (bio_text is the full source).
+  Listing pagination cursors are client-API-only (ignored on SSR routes) —
+  scale via the 1,044 listing heads + `latest` sort over time, not depth.
+- **Source scouting** (`docs/source-scouting.md`, live-probed): next up
+  Itaku (open JSON API, aligned), Misskey cross-hydration (598 held
+  accounts), Tumblr enrichment (user must register free API key).
+  No-gos with reasons: Cara (Cloudflare-walled incl. /api — watch for
+  their official API), Mihuashi (signed API 签名错误 — recommend
+  display-only platform row), Instagram (no compliant harvest exists).
+
+## Previous state (2026-07-22 latest — project purge + DeviantArt)
 
 **Directory 4,435 artists** (~32k account rows), lang_en 2,454 / ja 1,918.
 Paid X spend **$63.77 of $100**. Review queue 91 pending (35 singleton_gate
