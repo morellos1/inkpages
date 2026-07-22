@@ -20,6 +20,7 @@ with targets as (
   from accounts a
   where a.platform_id = %(tw)s and a.native_id is null and a.last_hydrated is null
     and a.status = 'unknown' and a.discovered_via <> 'bio_mention'
+    and not a.project
 ),
 direct as (
   select t.id as target_id, e.source_account_id as ref_id
@@ -34,7 +35,8 @@ hub_up as (
   join identity_edges e2 on e2.target_account_id = h.id and e2.status = 'present'
 ),
 refs as (select * from direct union select * from hub_up)
-select t.id, t.handle, r.ref_id, ra.discovered_via as ref_via,
+select t.id, t.handle, r.ref_id, ra.project as ref_project,
+       ra.discovered_via as ref_via,
        exists (select 1 from artist_accounts aa
                join artists ar on ar.id = aa.artist_id
                where aa.account_id = r.ref_id and aa.removed_at is null
@@ -67,9 +69,9 @@ def gated_handle_backlog(conn, twitter_platform_id: int,
         rows = cur.fetchall()
     by_target: dict[int, dict] = {}
     refs: defaultdict[int, list] = defaultdict(list)
-    for target_id, handle, ref_id, ref_via, ref_is_member, ref_text in rows:
+    for target_id, handle, ref_id, ref_project, ref_via, ref_is_member, ref_text in rows:
         by_target[target_id] = {"handle": handle}
-        if ref_id is not None:
+        if ref_id is not None and not ref_project:
             refs[target_id].append((ref_via, ref_is_member, ref_text))
 
     passing: list[str] = []

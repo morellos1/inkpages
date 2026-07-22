@@ -21,7 +21,7 @@ import re
 from collections import Counter, defaultdict
 
 from . import db, policy
-from .extract import looks_like_artist, looks_like_project
+from .extract import looks_like_artist, looks_like_project, project_account
 
 # bio_mention same-person claims (e.g. "nsfw alt: @x") count as strong; the
 # claim filter in load_state keeps 'related' mentions out entirely.
@@ -86,7 +86,9 @@ def create_artist(conn, account: dict, actor: str = "pipeline") -> int:
 
 
 def add_member(conn, artist_id: int, account_id: int, confidence: str,
-               details: dict, actor: str = "pipeline") -> None:
+               details: dict, actor: str = "pipeline") -> bool:
+    """Returns False (no insert) when a human closed this membership —
+    callers must not count or record a no-op as an attach."""
     with conn.cursor() as cur:
         # Never reopen a membership a HUMAN closed; pipeline-closed rows
         # (repairs, retraction healing) may re-form when evidence supports it.
@@ -98,7 +100,7 @@ def add_member(conn, artist_id: int, account_id: int, confidence: str,
             (artist_id, account_id),
         )
         if cur.fetchone():
-            return
+            return False
         cur.execute(
             """insert into artist_accounts (artist_id, account_id, confidence, added_by)
                values (%s, %s, %s, 'clustering')""",
@@ -109,6 +111,7 @@ def add_member(conn, artist_id: int, account_id: int, confidence: str,
                values (%s, 'account_added', %s, %s)""",
             (artist_id, actor, json.dumps({"account_id": account_id, **details})),
         )
+    return True
 
 
 def merge_artists(conn, keeper: int, losers: list[int], actor: str = "pipeline") -> None:
@@ -222,13 +225,85 @@ def add_review_item(conn, kind: str, payload: dict, stats: Counter) -> None:
     stats[f"review:{kind}"] += 1
 
 
+def flag_project_accounts(conn, stats: Counter) -> None:
+    """Standing sweep: any account whose handle ends in zine or whose
+    name/bio reads as a collective project (zine, big bang, anthology, fic
+    event) gets `accounts.project = true` — parsed out of clustering, the
+    connections table, the paid hydration backlog and singleton review,
+    with no human decision needed. Text-based and idempotent. Accounts a
+    human attached to an artist are exempt (human decisions are sacred);
+    an admin can clear a false positive in SQL, but the sweep re-flags
+    while the text still matches — widen the exemption here instead.
+    Pending singleton_gate items anchored on a flagged account resolve
+    themselves as rejected."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """select a.id, a.handle::text, a.display_name, ls.bio_text
+               from accounts a
+               left join lateral (select s.bio_text from account_snapshots s
+                                  where s.account_id = a.id
+                                  order by s.captured_at desc limit 1) ls on true
+               where not a.project
+                 and not exists (select 1 from artist_accounts aa
+                                 where aa.account_id = a.id
+                                   and aa.removed_at is null
+                                   and aa.added_by = 'human')""")
+        flagged = [row[0] for row in cur.fetchall()
+                   if project_account(row[1], row[2], row[3])]
+        if flagged:
+            cur.execute("update accounts set project = true where id = any(%s)",
+                        (flagged,))
+            stats["project_flagged"] += len(flagged)
+        cur.execute(
+            """update review_items ri
+               set status = 'rejected', resolved_at = now(),
+                   decided_by = 'pipeline:project_gate'
+               where ri.kind = 'singleton_gate' and ri.status = 'pending'
+                 and exists (select 1 from accounts a
+                             where a.id = (ri.payload ->> 'account_id')::bigint
+                               and a.project)""")
+        stats["project_reviews_rejected"] += cur.rowcount
+        # An artist whose EVERY member is a project account is a zine that
+        # slipped into the directory before the flag existed — demote it
+        # (visible on the Demoted page, restorable). Mixed clusters (a real
+        # artist plus a wrongly-attached zine account) are left for a human.
+        cur.execute(
+            """select ar.id from artists ar
+               where ar.status = 'active' and ar.merged_into is null
+                 and not exists (select 1 from artist_events e
+                                 where e.artist_id = ar.id and e.actor like 'admin%%')
+                 and exists (select 1 from artist_accounts aa
+                             join accounts a on a.id = aa.account_id
+                             where aa.artist_id = ar.id and aa.removed_at is null
+                               and a.project)
+                 and not exists (select 1 from artist_accounts aa
+                                 join accounts a on a.id = aa.account_id
+                                 where aa.artist_id = ar.id and aa.removed_at is null
+                                   and not a.project
+                                   -- display-only rows with no text at all
+                                   -- (an instagram handle) can't vouch that
+                                   -- the cluster is a person
+                                   and (coalesce(a.display_name, '') <> ''
+                                        or exists (select 1 from account_snapshots s
+                                                   where s.account_id = a.id
+                                                     and coalesce(s.bio_text, '') <> '')))""")
+        for (artist_id,) in cur.fetchall():
+            cur.execute("""update artists set status = 'needs_review', updated_at = now()
+                           where id = %s""", (artist_id,))
+            cur.execute(
+                """insert into artist_events (artist_id, event, actor, details)
+                   values (%s, 'suppressed', 'pipeline', %s)""",
+                (artist_id, json.dumps({"reason": "project_account"})))
+            stats["project_artists_demoted"] += 1
+
+
 def load_state(conn):
     from psycopg.rows import dict_row
 
     with conn.cursor(row_factory=dict_row) as cur:
         cur.execute(
             """select a.id, a.handle::text, a.display_name, a.followers_count,
-                      a.discovered_via, a.status, p.slug as platform_slug,
+                      a.discovered_via, a.status, a.project, p.slug as platform_slug,
                       p.kind as platform_kind, ls.bio_text as latest_bio
                from accounts a
                join platforms p on p.id = a.platform_id
@@ -293,7 +368,17 @@ def main() -> None:
                 )
                 stats["healed_memberships"] += 1
 
+        flag_project_accounts(conn, stats)
+
         accounts, edges, membership = load_state(conn)
+
+        # Project accounts never cluster: an edge touching a zine is a
+        # participant-roster wire, not an identity claim.
+        n_edges = len(edges)
+        edges = [e for e in edges
+                 if not accounts[e["source_account_id"]]["project"]
+                 and not accounts[e["target_account_id"]]["project"]]
+        stats["project_edges_excluded"] += n_edges - len(edges)
 
         directed = {(e["source_account_id"], e["target_account_id"]) for e in edges}
         mutual = {frozenset(pair) for pair in directed if (pair[1], pair[0]) in directed}
@@ -417,8 +502,9 @@ def main() -> None:
                 membership[anchor["id"]] = artist_id
                 stats["artists_created"] += 1
             for m in members:
-                if m not in membership and not db.is_suppressed(conn, m):
-                    add_member(conn, artist_id, m, "near_proof", {"via": "reciprocal"})
+                if (m not in membership and not db.is_suppressed(conn, m)
+                        and add_member(conn, artist_id, m, "near_proof",
+                                       {"via": "reciprocal"})):
                     membership[m] = artist_id
                     note_attach(artist_id, m)
                     stats["members_added"] += 1
@@ -568,6 +654,10 @@ def main() -> None:
                                            'secondary_link', 'over_platform_cap')"""
             )
             reflips = fcur.fetchall()
+        # Same exclusion as the union-find edge set: zines don't get rescued.
+        reflips = [e for e in reflips
+                   if not accounts[e["source_account_id"]]["project"]
+                   and not accounts[e["target_account_id"]]["project"]]
         flipped_out: dict[int, list[tuple[int, int]]] = defaultdict(list)
         for e in reflips:
             flipped_out[e["source_account_id"]].append(
@@ -687,9 +777,9 @@ def main() -> None:
             # reciprocates — at which point the mutual path auto-merges.
             if edge["evidence_type"] == "profile_field" and edge["relation_hint"] == "oauth":
                 # OAuth-verified: the platform vouches; prominence irrelevant.
-                if cap_ok(src_artist, tgt):
-                    add_member(conn, src_artist, tgt, "near_proof",
-                               {"via": "platform_verified_link", "edge_id": edge["id"]})
+                if cap_ok(src_artist, tgt) and add_member(
+                        conn, src_artist, tgt, "near_proof",
+                        {"via": "platform_verified_link", "edge_id": edge["id"]}):
                     membership[tgt] = src_artist
                     note_attach(src_artist, tgt)
                     stats["members_added"] += 1
@@ -698,9 +788,9 @@ def main() -> None:
                 # Confidently-regexed alt claims (サブ垢▶@x etc.) auto-attach;
                 # alts are legitimately a second same-platform account, so
                 # only the hard cap applies.
-                if cap_ok(src_artist, tgt):
-                    add_member(conn, src_artist, tgt, "strong",
-                               {"via": "alt_mention", "edge_id": edge["id"]})
+                if cap_ok(src_artist, tgt) and add_member(
+                        conn, src_artist, tgt, "strong",
+                        {"via": "alt_mention", "edge_id": edge["id"]}):
                     membership[tgt] = src_artist
                     note_attach(src_artist, tgt)
                     stats["alt_mentions_attached"] += 1
@@ -715,9 +805,10 @@ def main() -> None:
                 # it links back to >=2 of this artist's own distinctive hubs, the
                 # reciprocity proves same-person; attach instead (cap-guarded).
                 if (shared_reciprocity(src_artist, tgt) >= policy.RECIPROCITY_SHARED_MIN
-                        and not second_same_platform and cap_ok(src_artist, tgt)):
-                    add_member(conn, src_artist, tgt, "strong",
-                               {"via": "shared_hub_reciprocity", "edge_id": edge["id"]})
+                        and not second_same_platform and cap_ok(src_artist, tgt)
+                        and add_member(conn, src_artist, tgt, "strong",
+                                       {"via": "shared_hub_reciprocity",
+                                        "edge_id": edge["id"]})):
                     membership[tgt] = src_artist
                     note_attach(src_artist, tgt)
                     stats["reciprocity_merged"] += 1
@@ -727,9 +818,8 @@ def main() -> None:
             elif second_same_platform or not cap_ok(src_artist, tgt):
                 flip_to_connection(conn, edge["id"], "secondary_link")
                 stats["flipped_secondary"] += 1
-            else:
-                add_member(conn, src_artist, tgt, "strong",
-                           {"via": "one_directional", "edge_id": edge["id"]})
+            elif add_member(conn, src_artist, tgt, "strong",
+                            {"via": "one_directional", "edge_id": edge["id"]}):
                 membership[tgt] = src_artist
                 note_attach(src_artist, tgt)
                 stats["members_added"] += 1
@@ -745,8 +835,9 @@ def main() -> None:
         # flipped) — try the artist-level merge first.
         def restore_and_attach(edge, src_artist, tgt, confidence, via,
                                restored_hint, stat_key) -> None:
-            add_member(conn, src_artist, tgt, confidence,
-                       {"via": via, "edge_id": edge["id"]})
+            if not add_member(conn, src_artist, tgt, confidence,
+                              {"via": via, "edge_id": edge["id"]}):
+                return  # human closed this membership — leave the flip alone
             with conn.cursor() as ecur:
                 ecur.execute(
                     """update identity_edges set claim = 'same_person',

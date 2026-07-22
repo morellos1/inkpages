@@ -1278,6 +1278,9 @@ def artist(artist_id):
               -- that link is internal to a merge, not an external connection.
               and oa.id not in (select account_id from artist_accounts
                                 where artist_id = %(id)s and removed_at is null)
+              -- Zines/collective projects are parsed out entirely — their
+              -- participant-roster wires are not connections worth reviewing.
+              and not oa.project
             order by oa.id, e.claim desc, e.id""", {"id": artist_id})
         signals = q(conn, """
             select 'attestation' as kind, att.signal, att.matched_text, a.handle::text,

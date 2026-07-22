@@ -185,6 +185,40 @@ def looks_like_project(text: str | None) -> bool:
     return bool(text and _PROJECT_HINTS.search(text))
 
 
+# Handle-level project marker: zine accounts overwhelmingly end in "zine"
+# ("kurokenfanzine", "GIPenumbraZine"). "magazine" endings are excluded —
+# an art magazine handle is press, not a fan project, and _PROJECT_HINTS
+# deliberately ignores magazine/webzine too.
+_PROJECT_HANDLE = re.compile(r"(?<!maga)zines?$|bangs?$", re.IGNORECASE)
+
+# Display-name project vocabulary. JP アンソロ/合同誌 alone is NOT enough in a
+# name — "@アンソロ発売中" is an artist announcing a book they're in; only the
+# organizer-voice qualifiers (告知/公式/brackets) mark the account itself.
+_PROJECT_NAME = re.compile(
+    r"\b(?:fan)?zines?\b|\bbig\s?bangs?\b|antholog"
+    r"|(?:合同誌|アンソロジー?)\s*(?:告知|公式|【)", re.IGNORECASE)
+
+# Bio self-description: "A for-profit Haikyuu fanzine…", "our Genshin big
+# bang". A first-person participation mention ("creating zines", "art for
+# zines", "アンソロ寄稿") must NOT match — plenty of real artists contribute
+# to zines; only the determiner-led "is a zine" voice counts.
+_PROJECT_SELF_DESC = re.compile(
+    r"\b(?:a|an|the|this|our)\s+(?:[\w'!:&.~+-]+\s+){0,6}?"
+    r"(?:(?:fan)?zines?|(?:big|mini|reverse)\s?bangs?|bang\s+events?"
+    r"|antholog\w+|fan\s?events?)\b"
+    r"|(?:合同誌|アンソロジー?)(?:です|の?公式|企画)", re.IGNORECASE)
+
+
+def project_account(handle: str | None, display_name: str | None = None,
+                    bio: str | None = None) -> bool:
+    """True when an account IS a collective project (zine, big bang,
+    anthology) rather than a person: zine-suffixed handle, project-titled
+    display name, or a bio that self-describes as one."""
+    return bool((handle and _PROJECT_HANDLE.search(handle))
+                or (display_name and _PROJECT_NAME.search(display_name))
+                or (bio and _PROJECT_SELF_DESC.search(bio)))
+
+
 # --- bio @mentions: alt accounts vs merely-related accounts ---------------
 
 @dataclass(frozen=True)
