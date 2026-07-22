@@ -12,7 +12,30 @@ rationale: `docs/schema.md` and `docs/pipeline.md`. Untapped-source scouting
 (vgen/itaku/misskey/tumblr next; cara+mihuashi+instagram no-go, with reasons):
 `docs/source-scouting.md` (probed live 2026-07-22).
 
-## Current state (2026-07-22 final — VGen twitter wave + sources page)
+## Current state (2026-07-22 end — tiktok, category tiers, UI polish)
+
+**Directory 6,199 artists** (lang_en 3,952 / ja 2,077). Paid X spend
+**$78.07 of $100**. Smoke green, migrations at 0032.
+
+- **TikTok is display-only platform #4** (migration 0032, like
+  instagram/weibo/facebook): `tiktok.com/@handle` pattern, vm/vt.tiktok.com
+  in SHORTENER_DOMAINS, 158 website rows reclassified, 158 accounts wired.
+- **docs/vgen-categories.md**: 147 sampled vgen root categories tiered 1-5
+  by digital-artist likelihood + surface counts. 143 top-1000 artists
+  surfaced ONLY in tier 5 (video/audio/writing — exclusion candidates,
+  listed by handle), 112 only in tier 4 (rigging/3D — user's call).
+  `discover_vgen --exclude-category <root>` filters future harvests.
+  **Re-walks accrete**: listing heads rotate, each harvest mints that
+  walk's top-1000 (ratings re-walk added 265 new artists) — bound future
+  runs with --top/--exclude-category or accept growth.
+- **vgen_rating captured** (harvest + hydration; ~saturated: avg 4.995,
+  min 4.6 — reviews count stays the ranking metric). Stats macro shows one
+  compact chip; tags/categories DB-only. `db.set_platform_stats` merges.
+  UI squish pass: scoped .wrapany, td.nowrap/.trunc, main 1400px.
+- vgen cohort fully hydrated (1,545 profiles incl. rotation arrivals),
+  their twitters hydrated (~$14.3 total today, all gate-vouched).
+
+## Previous state (2026-07-22 final — VGen twitter wave + sources page)
 
 **Directory 5,902 artists**, lang_en 3,716 / ja 2,041 / zh 211. Paid X
 spend **$74.75 of $100**. Twitter backlog converged (~$0.2 residual;
