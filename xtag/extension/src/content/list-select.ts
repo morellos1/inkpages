@@ -68,12 +68,64 @@ function decorateCell(cell: HTMLElement): void {
   box.checked = selected.has(handle);
 }
 
-function visibleHandles(): string[] {
-  const handles: string[] = [];
-  document.querySelectorAll<HTMLInputElement>(`.${CHECKBOX_CLASS}`).forEach((box) => {
-    if (box.dataset.xtagHandle) handles.push(box.dataset.xtagHandle);
+// Collect handles straight from mounted UserCells (not our checkboxes — the
+// decorate pass is debounced and may lag during a fast auto-scroll).
+function collectMountedHandles(): number {
+  let added = 0;
+  document.querySelectorAll<HTMLElement>('[data-testid="UserCell"]').forEach((cell) => {
+    const handle = findHandleInContainer(cell);
+    if (handle && !selected.has(handle)) {
+      selected.add(handle);
+      added += 1;
+    }
   });
-  return handles;
+  return added;
+}
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// X virtualizes connection lists: only ~a window of rows is ever in the DOM,
+// so "select all" must walk the list itself. Scroll in sub-viewport steps
+// (every row has to pass through the render window — jumping straight to the
+// bottom can skip batches), harvesting handles as they mount, until the list
+// stops growing. Clicking again while scanning stops it.
+let scanning = false;
+let scanCancelled = false;
+
+async function selectAllByScrolling(): Promise<void> {
+  if (scanning) {
+    scanCancelled = true;
+    return;
+  }
+  scanning = true;
+  scanCancelled = false;
+  renderBar();
+  const startY = window.scrollY;
+  const scroller = document.scrollingElement ?? document.documentElement;
+  let stale = 0;
+  collectMountedHandles();
+  setMessage(`scanning… ${selected.size} selected (click Stop to end here)`);
+  while (!scanCancelled) {
+    const heightBefore = scroller.scrollHeight;
+    window.scrollBy(0, Math.round(window.innerHeight * 1.3));
+    await sleep(380);
+    const added = collectMountedHandles();
+    setMessage(`scanning… ${selected.size} selected`);
+    const atBottom = window.scrollY + window.innerHeight >= scroller.scrollHeight - 8;
+    if (added === 0 && atBottom && scroller.scrollHeight === heightBefore) {
+      stale += 1;
+      if (stale >= 4) break; // end of list (4 quiet beats ≈ network settled)
+      await sleep(600); // give the next batch fetch a chance before deciding
+    } else {
+      stale = 0;
+    }
+  }
+  persistSelection();
+  window.scrollTo(0, startY);
+  scanning = false;
+  syncCheckboxes();
+  renderBar();
+  setMessage(`${scanCancelled ? "stopped" : "scanned to end"} — ${selected.size} selected`);
 }
 
 function syncCheckboxes(): void {
@@ -109,8 +161,12 @@ function renderBar(): void {
   bar.querySelector(".xtag-bar-count")!.textContent =
     selected.size ? `${selected.size} selected` : "none selected";
   bar.querySelectorAll("button").forEach((b) => {
-    b.disabled = barBusy || (b.dataset.act !== "all" && selected.size === 0);
-    if (b.dataset.act === "all") b.disabled = barBusy;
+    if (b.dataset.act === "all") {
+      b.textContent = scanning ? "Stop" : "Select all";
+      b.disabled = barBusy;
+      return;
+    }
+    b.disabled = barBusy || scanning || selected.size === 0;
   });
 }
 
@@ -122,10 +178,7 @@ function setMessage(text: string): void {
 async function onBarAction(action: string): Promise<void> {
   if (barBusy) return;
   if (action === "all") {
-    visibleHandles().forEach((h) => selected.add(h));
-    persistSelection();
-    syncCheckboxes();
-    renderBar();
+    void selectAllByScrolling();
     return;
   }
   if (action === "clear") {

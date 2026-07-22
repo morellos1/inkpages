@@ -23,9 +23,11 @@ optionally a pipeline pass so the new artists actually list.
   profile.
 - **Profile header button** next to Follow/More.
 - **Follower/following lists**: checkbox per row + a bottom bar with
-  Select all / Add to inkpages / Remove. Selection is keyed by handle, so it
-  survives scrolling through virtualized rows and accumulates across
-  "Select all" clicks.
+  Select all / Add to inkpages / Remove. **Select all auto-scrolls the whole
+  list** (X only mounts ~a window of rows, so the scan walks to the end
+  harvesting handles, then jumps back; click Stop to end early). Selection is
+  keyed by handle, survives reloads (chrome.storage.local), and Add/Remove
+  only deselect what the server confirmed.
 
 ## Removal semantics
 
