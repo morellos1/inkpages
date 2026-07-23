@@ -133,6 +133,7 @@ TEMPLATES = {
   <a href="{{ url_for('removed') }}">Removed</a>
   <a href="{{ url_for('sources') }}">Sources</a>
   <a href="{{ url_for('rules') }}">Rules</a>
+  <a href="{{ url_for('xtag_dashboard') }}">X tags</a>
 </header>
 <main>{% block content %}{% endblock %}</main>
 <dialog id="confirm-dialog" style="border:0;border-radius:10px;padding:1.2rem 1.4rem;max-width:26rem;box-shadow:0 12px 40px rgba(0,0,0,.25)">
@@ -467,6 +468,90 @@ attach/merge.</p>
 <table><tr><th>when</th><th>event</th><th>actor</th><th>details</th></tr>
 {% for e in events %}<tr><td>{{ e.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
 <td>{{ e.event }}</td><td>{{ e.actor }}</td><td class="muted wrapany">{{ e.details }}</td></tr>{% endfor %}</table>
+{% endblock %}""",
+
+"xtag.html": """{% extends "base.html" %}{% import "_macros.html" as m %}{% block content %}
+<h1>X tags <span class="muted" style="font-size:.6em">(x-tag extension dashboard)</span></h1>
+
+<div class="stats">
+  <div class="stat"><b>{{ stats.tagged }}</b>tagged total</div>
+  <div class="stat"><b>{{ stats.queued }}</b>queued (~${{ "%.2f"|format(queue_cents / 100) }})</div>
+  <div class="stat"><b>{{ stats.hydrated }}</b>hydrated</div>
+  <div class="stat"><b>{{ stats.artists }}</b>artists</div>
+  <div class="stat"><b>{{ stats.removed }}</b>removed</div>
+  <div class="stat"><b>${{ "%.2f"|format(spent / 100) }}</b>spent of ${{ "%.0f"|format(cap / 100) }}</div>
+</div>
+
+<div class="card">
+  <b>Pipeline</b> —
+  {% if workers %}<span class="chip badge-open">running</span>
+    {% for w in workers %}<code style="font-size:.8em">{{ w }}</code>{% if not loop.last %} · {% endif %}{% endfor %}
+  {% else %}<span class="chip">idle</span>{% endif %}
+  · {{ "{:,}".format(hubs_uncrawled) }} hub pages await crawling
+  {% if log_tail %}
+  <details {% if workers %}open{% endif %}><summary>log tail</summary>
+    <pre style="max-height:260px;overflow:auto;font-size:.75em;background:#f6f7f9;padding:8px">{{ log_tail }}</pre>
+  </details>
+  {% endif %}
+  {% if workers %}<script>setTimeout(function () { location.reload(); }, 20000);</script>{% endif %}
+</div>
+
+<details class="card"><summary><b>Hydration history</b> ({{ flushes|length }} recent flush batches)</summary>
+<table><tr><th>when</th><th>profiles</th><th>cost</th></tr>
+{% for f in flushes %}<tr><td class="nowrap">{{ f.occurred_at.strftime('%Y-%m-%d %H:%M') }}</td>
+<td>{{ f.units }}</td><td>${{ "%.2f"|format(f.cents / 100) }}</td></tr>
+{% else %}<tr><td colspan="3" class="muted">none yet</td></tr>{% endfor %}</table>
+</details>
+
+{% if request.args.get('msg') %}<p class="card" style="border-left:3px solid #2e7d32">{{ request.args.get('msg') }}</p>{% endif %}
+
+<form method="get" class="filterform" style="margin:12px 0">
+<input type="text" name="q" value="{{ qtext }}" placeholder="search handle / name">
+<select name="state">
+  <option value="">all states</option>
+  {% for s in ['queued', 'hydrated', 'listed', 'removed'] %}
+  <option value="{{ s }}" {% if state == s %}selected{% endif %}>{{ s }}</option>
+  {% endfor %}
+</select>
+<button class="warn">Filter</button>
+{% if qtext or state %}<a class="linkish" href="{{ url_for('xtag_dashboard') }}" style="margin-left:.6rem">clear</a>{% endif %}
+</form>
+
+<p class="muted">{{ "{:,}".format(total) }} match{{ '' if total == 1 else 'es' }}{% if pages > 1 %} · page {{ page }} of {{ pages }}{% endif %}.
+Removing here = the same rules as the extension: queued rows delete, known rows hide, listed artists get suppressed (reversible from Removed).</p>
+
+<table><tr><th><input type="checkbox" data-checkall="rmform" title="select all on page"></th>
+<th></th><th>handle</th><th>name</th><th class="nowrap">followers</th><th>state</th></tr>
+{% for r in rows %}<tr>
+  <td><input type="checkbox" form="rmform" name="handles" value="{{ r.handle }}"></td>
+  <td>{% if r.avatar_url %}<img src="{{ img_src(r.avatar_url) }}" width="28" height="28" style="border-radius:50%;object-fit:cover" loading="lazy">{% endif %}</td>
+  <td><a href="https://x.com/{{ r.handle }}" target="_blank" rel="noopener">@{{ r.handle }}</a></td>
+  <td class="trunc" title="{{ r.display_name or '' }}">{{ r.display_name or "—" }}</td>
+  <td class="nowrap">{{ "{:,}".format(r.followers_count) if r.followers_count is not none else "—" }}</td>
+  <td class="nowrap">
+    {% if r.listed %}<a href="{{ url_for('artist', artist_id=r.artist_id) }}" target="_blank"><span class="chip badge-open">listed /{{ r.public_slug }}</span></a>
+    {% elif r.status in ('hidden', 'deleted') %}<span class="chip badge-suppressed">{{ r.status }}</span>
+    {% elif r.artist_id %}<a href="{{ url_for('artist', artist_id=r.artist_id) }}" target="_blank"><span class="chip">artist (unlisted)</span></a>
+    {% elif r.last_hydrated %}<span class="chip">hydrated</span>
+    {% else %}<span class="chip badge-waitlist">queued</span>{% endif %}
+  </td>
+</tr>{% else %}<tr><td colspan="6" class="muted">nothing tagged yet</td></tr>{% endfor %}</table>
+
+<form id="rmform" method="post" action="{{ url_for('xtag_remove') }}"
+      data-confirm="Remove all selected from inkpages? Queued rows delete, known rows hide, listed artists get suppressed (reversible from the Removed page).">{{ csrf() }}
+  <input type="hidden" name="back_state" value="{{ state }}">
+  <input type="hidden" name="back_q" value="{{ qtext }}">
+  <button class="no">Remove selected</button></form>
+
+{% if pages > 1 %}<div class="pager">
+  {% if page > 1 %}<a href="?{{ qs_with(page=page-1) }}">‹ prev</a>{% endif %}
+  {% for p in page_window %}
+    {% if p == page %}<span class="cur">{{ p }}</span>
+    {% elif p == 0 %}<span class="muted">…</span>
+    {% else %}<a href="?{{ qs_with(page=p) }}">{{ p }}</a>{% endif %}
+  {% endfor %}
+  {% if page < pages %}<a href="?{{ qs_with(page=page+1) }}">next ›</a>{% endif %}
+</div>{% endif %}
 {% endblock %}""",
 
 "demoted.html": """{% extends "base.html" %}{% import "_macros.html" as m %}{% block content %}
@@ -2039,12 +2124,10 @@ def api_x_tag():
     return {"accounts": done}
 
 
-@app.route("/api/x/untag", methods=["POST"])
-def api_x_untag():
-    handles = _clean_handles(request.get_json(silent=True))
-    with db.connect() as conn:
-        states = _x_states(conn, handles)
-        with conn.cursor() as cur:
+def _untag_handles(conn, handles: list[str]) -> dict[str, dict]:
+    """Shared by the extension API and the /xtag dashboard bulk form."""
+    states = _x_states(conn, handles)
+    with conn.cursor() as cur:
             for h in handles:
                 info = states[h]
                 if info["state"] == "listed":
@@ -2083,8 +2166,15 @@ def api_x_untag():
                                where p.id = a.platform_id and p.slug = 'twitter'
                                  and lower(a.handle::text) = %s
                                  and a.status <> 'deleted'""", (h,))
-        conn.commit()
-        return {"accounts": _x_states(conn, handles)}
+    conn.commit()
+    return _x_states(conn, handles)
+
+
+@app.route("/api/x/untag", methods=["POST"])
+def api_x_untag():
+    handles = _clean_handles(request.get_json(silent=True))
+    with db.connect() as conn:
+        return {"accounts": _untag_handles(conn, handles)}
 
 
 _X_QUEUE_SQL = """
@@ -2143,11 +2233,130 @@ def api_x_flush():
         conn.commit()
     pipeline_started = bool(payload.get("run_pipeline"))
     if pipeline_started:
-        # Free stages only (crawl → cluster → classify); output lands in the
-        # server log. The new singletons list once it finishes.
-        subprocess.Popen([sys.executable, "-m", "inkpages.pipeline"])
+        # Free stages only (crawl → cluster → classify). Output appends to
+        # the xtag pipeline log so /xtag can show live progress.
+        with open(_XTAG_LOG, "ab") as log:
+            log.write(f"\n=== pipeline started {time.strftime('%Y-%m-%d %H:%M:%S')} "
+                      f"(after flush of {len(found)}) ===\n".encode())
+            subprocess.Popen([sys.executable, "-m", "inkpages.pipeline"],
+                             stdout=log, stderr=subprocess.STDOUT)
     return {"hydrated": len(found), "missing": len(missing),
             "cost_cents": int(planned), "pipeline_started": pipeline_started}
+
+
+_XTAG_LOG = db.ROOT / "xtag-pipeline.log"
+
+
+def _running_workers() -> list[str]:
+    """Pipeline-family python processes currently alive (whoever started
+    them). Only actual `python -m inkpages.X` processes count — shell
+    wrappers whose command STRING mentions a worker name must not."""
+    try:
+        # NB: the pattern must not start with a dash (pgrep eats it as a flag).
+        out = subprocess.run(
+            ["pgrep", "-fl", r"inkpages\.(pipeline|crawl_links|check_links|"
+             r"cluster|classify_region|hydrate_twitter|discover_)"],
+            capture_output=True, text=True, timeout=5).stdout
+    except (subprocess.SubprocessError, OSError):
+        return []
+    workers = []
+    for line in out.splitlines():
+        parts = line.split(None, 2)
+        if len(parts) < 2 or parts[1].rstrip(":").endswith(("sh", "zsh", "bash")):
+            continue
+        if m := re.search(r"-m\s+(inkpages\.\w+)", line):
+            workers.append(m.group(1))
+    return sorted(set(workers))
+
+
+@app.route("/xtag")
+def xtag_dashboard():
+    from .twitter import USER_READ_CENTS, spend_cap_cents, spent_cents
+
+    state = request.args.get("state", "")
+    query = request.args.get("q", "").strip()
+    page = max(int(request.args.get("page", "1") or 1), 1)
+    per = 100
+    where = ["a.discovered_via = 'manual_tag'", "p.slug = 'twitter'"]
+    params: dict = {}
+    if state == "queued":
+        where.append("a.last_hydrated is null and a.status = 'unknown'")
+    elif state == "listed":
+        where.append("de.artist_id is not null")
+    elif state == "hydrated":
+        where.append("a.last_hydrated is not null and de.artist_id is null "
+                     "and a.status not in ('hidden', 'deleted')")
+    elif state == "removed":
+        where.append("a.status in ('hidden', 'deleted')")
+    if query:
+        where.append("(a.handle::text ilike %(q)s or a.display_name ilike %(q)s)")
+        params["q"] = f"%{query}%"
+    base_sql = f"""
+        from accounts a
+        join platforms p on p.id = a.platform_id
+        left join artist_accounts aa on aa.account_id = a.id and aa.removed_at is null
+        left join artists ar on ar.id = aa.artist_id and ar.merged_into is null
+        left join directory_entries de on de.artist_id = ar.id
+        where {' and '.join(where)}"""
+    with db.connect() as conn:
+        total = q(conn, f"select count(*) n {base_sql}", params)[0]["n"]
+        rows = q(conn, f"""
+            select a.id, a.handle::text as handle, a.display_name, a.avatar_url,
+                   a.followers_count, a.last_hydrated, a.status,
+                   ar.id as artist_id, ar.public_slug,
+                   de.artist_id is not null as listed
+            {base_sql}
+            order by a.id desc limit {per} offset {(page - 1) * per}""", params)
+        stats = q(conn, """
+            select count(*) as tagged,
+                   count(*) filter (where a.last_hydrated is null
+                                    and a.status = 'unknown') as queued,
+                   count(*) filter (where a.last_hydrated is not null
+                                    and a.status not in ('hidden','deleted')) as hydrated,
+                   count(distinct aa.artist_id)
+                       filter (where aa.removed_at is null) as artists,
+                   count(*) filter (where a.status in ('hidden','deleted')) as removed
+            from accounts a
+            join platforms p on p.id = a.platform_id and p.slug = 'twitter'
+            left join artist_accounts aa on aa.account_id = a.id
+            where a.discovered_via = 'manual_tag'""")[0]
+        hubs_uncrawled = cached("xtag_hubs", lambda: q(conn, """
+            select count(*) n from accounts h
+            join platforms p on p.id = h.platform_id
+            where p.kind = 'link_hub' and h.last_hydrated is null
+              and h.status <> 'deleted'""")[0]["n"])
+        flushes = q(conn, """
+            select occurred_at, sum(units) units, sum(est_cost_cents) cents
+            from api_usage where service = 'x_api' and note = 'x-tag flush'
+            group by occurred_at order by occurred_at desc limit 8""")
+        spent, cap = spent_cents(conn), spend_cap_cents()
+        pending = pending_count(conn)
+        demoted = demoted_count(conn)
+    workers = _running_workers()
+    log_tail = ""
+    if _XTAG_LOG.exists():
+        with open(_XTAG_LOG, "rb") as fh:
+            fh.seek(max(fh.seek(0, 2) - 6000, 0))
+            log_tail = fh.read().decode(errors="replace")[-6000:]
+    pages = max((total + per - 1) // per, 1)
+    return render_template(
+        "xtag.html", rows=rows, stats=stats, total=total, page=page, pages=pages,
+        page_window=page_window(page, pages), state=state, qtext=query,
+        workers=workers, log_tail=log_tail, hubs_uncrawled=hubs_uncrawled,
+        flushes=flushes, spent=spent, cap=cap,
+        queue_cents=int(stats["queued"] * USER_READ_CENTS),
+        pending=pending, demoted_count=demoted)
+
+
+@app.route("/xtag/remove", methods=["POST"])
+def xtag_remove():
+    handles = _clean_handles({"handles": request.form.getlist("handles")})
+    with db.connect() as conn:
+        results = _untag_handles(conn, handles)
+    removed = sum(1 for v in results.values() if v["state"] in ("removed", "untracked"))
+    return redirect(url_for("xtag_dashboard", state=request.form.get("back_state") or None,
+                            q=request.form.get("back_q") or None,
+                            msg=f"removed {removed} of {len(handles)}"))
 
 
 def main():

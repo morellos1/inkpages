@@ -57,6 +57,12 @@ flushButton.addEventListener("click", async () => {
   void refreshQueue();
 });
 
+$("dashboard").addEventListener("click", async () => {
+  const stored = await chrome.storage.local.get("baseUrl");
+  const base = ((stored.baseUrl as string) || "http://127.0.0.1:8322").replace(/\/$/, "");
+  void chrome.tabs.create({ url: `${base}/xtag` });
+});
+
 (async () => {
   const stored = await chrome.storage.local.get(["baseUrl", "token"]);
   baseUrlInput.value = (stored.baseUrl as string) ?? "";
