@@ -402,7 +402,11 @@ _RESERVED_HANDLES = _SUBDOMAIN_JUNK | {
     # artstation.com/store, tumblr.com/tags, ko-fi.com/cdn …
     "user", "users", "uploads", "production", "store", "files", "images",
     "img", "content", "downloads", "photos", "storage", "sites", "pages",
-    "news", "category", "wiki", "tag", "tags", "post", "posts", "public"}
+    "news", "category", "wiki", "tag", "tags", "post", "posts", "public",
+    # DeviantArt top-level non-user paths minting junk deviantart accounts:
+    # deviantart.com/stash (sta.sh), /journal, /favourites, /deviations …
+    "stash", "journal", "journals", "favourites", "deviations",
+    "daily-deviations", "groups"}
 
 # A pure long-hex "handle" is a content hash from a CDN URL, not an account.
 _HEX_JUNK = re.compile(r"[0-9a-f]{16,}", re.IGNORECASE)

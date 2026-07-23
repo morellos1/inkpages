@@ -28,6 +28,18 @@ _KANA = re.compile(r"[぀-ヿ]")
 _HANGUL = re.compile(r"[가-힯]")
 _HAN = re.compile(r"[一-鿿]")
 _LATIN = re.compile(r"[A-Za-z]")
+# Non-Latin, non-CJK scripts. Checked before the Latin fallback so a
+# Thai/Russian/Arabic bio that also carries a stray latin char isn't mislabeled
+# 'en'. Script → dominant language (Thai ⇒ th; Cyrillic ⇒ ru; Arabic ⇒ ar) —
+# a heuristic, but far better than the 'en'/'unknown' these used to collapse
+# into. Run-length thresholds (not the single-char test the CJK scripts use)
+# reject decorative use: Cyrillic and Greek glyphs are Latin-lookalikes that
+# stylized English names string together (🏝️кⒶσѕ ρυик — Latin, not Russian),
+# so Cyrillic needs a 4+ run (a real word); Thai/Arabic have no Latin-lookalike
+# decorative use, so 2 consecutive chars is enough.
+_THAI = re.compile(r"[ก-๛]{2}")
+_CYRILLIC = re.compile(r"[Ѐ-ӿ]{4,}")
+_ARABIC = re.compile(r"[؀-ۿ]{2}")
 
 
 def detect_language(text: str) -> str:
@@ -37,6 +49,12 @@ def detect_language(text: str) -> str:
         return "ko"
     if _HAN.search(text):
         return "zh"
+    if _THAI.search(text):
+        return "th"
+    if _CYRILLIC.search(text):
+        return "ru"
+    if _ARABIC.search(text):
+        return "ar"
     if _LATIN.search(text):
         return "en"
     return "unknown"

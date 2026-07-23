@@ -249,10 +249,15 @@ def purge_junk_website_accounts(conn, stats: Counter) -> None:
     from .extract import _ASSET_EXT, _NON_WEBSITE_DOMAINS, _RESERVED_HANDLES
 
     with conn.cursor() as cur:
+        # Select junk regardless of current status: an already-hidden or
+        # -deleted junk account can still carry PRESENT edges (a re-crawled
+        # hub re-adds them; edges are out of reextract's reach), which keep
+        # rendering in the Connections table. Retracting those lingering
+        # edges every run is the fix — the status guard used to skip them.
         cur.execute(
             """select a.id from accounts a
                join platforms p on p.id = a.platform_id
-               where (p.slug = 'website' and a.status <> 'hidden'
+               where (p.slug = 'website'
                       and (split_part(a.handle::text, '/', 1) ~* ('(^|\\.)('
                              || array_to_string(%(domains)s::text[], '|') || ')$')
                            or a.handle::text ~* %(asset_re)s
@@ -260,8 +265,8 @@ def purge_junk_website_accounts(conn, stats: Counter) -> None:
                            -- links fused into one handle
                            or a.handle::text ~* 'https?:/'))
                   -- reserved path words captured as handles on any platform
-                  -- (vgen.co/uploads, deviantart.com/users, cara.app/production)
-                  or (p.slug not in ('website', 'bluesky') and a.status <> 'hidden'
+                  -- (vgen.co/uploads, deviantart.com/stash, cara.app/production)
+                  or (p.slug not in ('website', 'bluesky')
                       and lower(a.handle::text) = any(%(reserved)s))""",
             {"domains": [re.escape(d) for d in sorted(_NON_WEBSITE_DOMAINS)],
              "asset_re": _ASSET_EXT.pattern,
@@ -286,9 +291,69 @@ def purge_junk_website_accounts(conn, stats: Counter) -> None:
         cur.execute(
             """update artist_accounts set removed_at = now()
                where removed_at is null and account_id = any(%s)""", (junk,))
+        # Hide active/unknown junk; leave a 'deleted' (404'd) account deleted —
+        # both are already out of the publish view, and the status carries a
+        # distinct signal worth keeping.
+        cur.execute(
+            """update accounts set status = 'hidden'
+               where id = any(%s) and status not in ('hidden', 'deleted')""",
+            (junk,))
+        stats["junk_site_accounts_hidden"] += cur.rowcount
+
+
+# A YouTube channel-id handle (youtube.com/channel/UC…, 24 chars) is the same
+# channel as its youtube.com/@handle form, but the two mint separate accounts
+# (different native_id, no reciprocal edge). Real @-handles never reach this
+# length, so it cleanly identifies the url-form duplicate.
+_YT_CHANNEL_ID = r"^UC[A-Za-z0-9_-]{20,}$"
+
+
+def dedup_youtube_channel_accounts(conn, stats: Counter) -> None:
+    """Standing sweep: when an artist has both a named YouTube account
+    (youtube.com/@name) and a channel-id-only one (youtube.com/channel/UC…)
+    for effectively the same channel, keep the named account and retire the
+    url-form duplicate — retract its edges, close the membership, hide it.
+    An artist whose only YouTube account is a channel-id keeps it (nothing
+    named to prefer). Idempotent."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """select uc.id
+               from artist_accounts aa
+               join accounts uc on uc.id = aa.account_id
+               join platforms p on p.id = uc.platform_id and p.slug = 'youtube'
+               where aa.removed_at is null and uc.status in ('active', 'unknown')
+                 and uc.handle::text ~ %(uc)s
+                 -- same artist also has a NAMED youtube member to keep
+                 and exists (
+                   select 1 from artist_accounts aa2
+                   join accounts n on n.id = aa2.account_id
+                   join platforms p2 on p2.id = n.platform_id and p2.slug = 'youtube'
+                   where aa2.artist_id = aa.artist_id and aa2.removed_at is null
+                     and n.status in ('active', 'unknown')
+                     and n.handle::text !~ %(uc)s)""",
+            {"uc": _YT_CHANNEL_ID})
+        dupes = [row[0] for row in cur.fetchall()]
+        if not dupes:
+            return
+        cur.execute(
+            """update identity_edges set status = 'retracted'
+               where status = 'present'
+                 and (source_account_id = any(%(ids)s)
+                      or target_account_id = any(%(ids)s))""", {"ids": dupes})
+        cur.execute(
+            """insert into artist_events (artist_id, event, actor, details)
+               select aa.artist_id, 'account_removed', 'pipeline',
+                      jsonb_build_object('account_id', aa.account_id,
+                                         'reason', 'youtube_channel_id_duplicate')
+               from artist_accounts aa
+               where aa.removed_at is null and aa.account_id = any(%s)""",
+            (dupes,))
+        cur.execute(
+            """update artist_accounts set removed_at = now()
+               where removed_at is null and account_id = any(%s)""", (dupes,))
         cur.execute("update accounts set status = 'hidden' where id = any(%s)",
-                    (junk,))
-        stats["junk_site_accounts_hidden"] += len(junk)
+                    (dupes,))
+        stats["youtube_channel_dupes_hidden"] += len(dupes)
 
 
 def flag_project_accounts(conn, stats: Counter) -> None:
@@ -436,6 +501,7 @@ def main() -> None:
                 stats["healed_memberships"] += 1
 
         purge_junk_website_accounts(conn, stats)
+        dedup_youtube_channel_accounts(conn, stats)
         flag_project_accounts(conn, stats)
 
         accounts, edges, membership = load_state(conn)

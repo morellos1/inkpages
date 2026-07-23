@@ -314,7 +314,6 @@ document.querySelectorAll('.bio').forEach(function (box) {
 "index.html": """{% extends "base.html" %}{% import "_macros.html" as m %}{% block content %}
 <div class="stats">
   <div class="stat"><b>{{ stats.artists }}</b>listed artists</div>
-  <div class="stat"><b>{{ stats.badged }}</b>no-AI badged</div>
   <div class="stat"><b>{{ stats.nsfw }}</b>18+ flagged</div>
   <div class="stat"><b>{{ stats.accounts }}</b>accounts</div>
   <div class="stat"><b>{{ stats.suppressed }}</b>suppressed</div>
@@ -379,8 +378,7 @@ document.querySelectorAll('.bio').forEach(function (box) {
   <td>{% for s in a.sources or [] %}<span class="chip badge-noai" style="background:#e8edf7;color:#14213d">{{ s }}</span>{% endfor %}
       {% for acc in a.accounts or [] %}<span class="chip">{{ acc.platform }}: {{ acc_label(acc.platform, acc.handle, acc.display_name) }}{% if acc.stats and acc.stats.protected %} <span title="private account — tweets are followers-only as of the last hydration">🔒</span>{% endif %}</span>{% endfor %}</td>
   {%- set plats = (a.accounts or [])|map(attribute='platform')|list -%}
-  <td>{% if a.no_ai_attested %}<span class="chip badge-noai">no-AI</span>{% endif %}
-      {% if a.nsfw %}<span class="chip badge-nsfw">18+</span>{% endif %}
+  <td>{% if a.nsfw %}<span class="chip badge-nsfw">18+</span>{% endif %}
       {% if 'twitter' not in plats and 'bluesky' not in plats %}<span class="chip badge-suppressed">no X/bsky</span>{% endif %}
       {% if a.dormant %}<span class="chip badge-dormant">dormant</span>{% endif %}
       {% if a.commissions %}
@@ -403,11 +401,10 @@ document.querySelectorAll('.bio').forEach(function (box) {
 
 "artist.html": """{% extends "base.html" %}{% import "_macros.html" as m %}{% block content %}
 <h1>{% if avatar %}<img src="{{ img_src(avatar) }}" width="44" height="44" style="border-radius:50%;object-fit:cover;vertical-align:middle"> {% endif %}{{ artist.display_name }} <span class="muted">/{{ artist.public_slug }}</span>
-  {% if badge %}<span class="chip badge-noai">no-AI</span>{% endif %}
   {% if nsfw %}<span class="chip badge-nsfw">18+</span>{% endif %}
   {% if suppressed %}<span class="chip badge-suppressed">SUPPRESSED</span>{% endif %}
 </h1>
-<p class="muted">language: {{ artist.language }} · region: {{ artist.region }} ({{ artist.region_source }}) · status: {{ artist.status }} · created {{ artist.created_at.date() }}</p>
+<p class="muted">language: {{ artist.language }} · status: {{ artist.status }} · created {{ artist.created_at.date() }}</p>
 
 <div class="card">
 {% if suppressed %}
@@ -1059,8 +1056,10 @@ FLAG_SQL = {
 }
 # nsfw stays in FLAG_SQL (legacy URLs still work) but is not offered as a
 # checkbox — 18+ visibility is the single "show 18+" toggle instead.
-FLAG_LABELS = [("no_ai", "no-AI"), ("dormant", "dormant"),
-               ("no_pkey", "no X/bsky")]
+# no_ai stays in FLAG_SQL (legacy ?flag=no_ai URLs still resolve) but is no
+# longer offered as a checkbox: the "no-AI" badge/flag was removed from the UI
+# as misleading to end users (it is only ever the artist's own attestation).
+FLAG_LABELS = [("dormant", "dormant"), ("no_pkey", "no X/bsky")]
 
 # Commission-open facets → EXISTS predicate on a member account. AND-combined.
 # skeb/pixiv "open" mean the platform's own authoritative flag (detail prefixed
@@ -1321,7 +1320,6 @@ def index():
         # so every sort/filter/page click doesn't rescan the publish view.
         stats = cached("index_stats", lambda: q(conn, """
             select (select count(*) from directory_entries) as artists,
-                   (select count(*) from directory_entries where no_ai_attested) as badged,
                    (select count(*) from directory_entries where nsfw) as nsfw,
                    (select count(*) from accounts) as accounts,
                    (select count(distinct artist_id) from suppressions where lifted_at is null) as suppressed""")[0])
