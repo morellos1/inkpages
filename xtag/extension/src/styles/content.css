@@ -79,6 +79,14 @@
   margin-right: 8px;
 }
 
+/* The hover card's follow-button wrapper is a column flex div; row-ify it so
+   our button sits beside Follow, not above it. The wrapper only holds the
+   follow button, our row, and a display:none description node. */
+.xtag-hover-actions {
+  flex-direction: row !important;
+  align-items: center !important;
+}
+
 /* Compact ink button inside a tweet's action row. */
 .xtag-post-action {
   display: flex;

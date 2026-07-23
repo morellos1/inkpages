@@ -45,6 +45,10 @@ function decorate(card: HTMLElement): void {
   if (followButton) {
     row.className = `${ROW_CLASS} xtag-hovercard-inline`;
     followButton.insertAdjacentElement("beforebegin", row);
+    // The follow button's parent is a COLUMN flex div (RN-web default), so a
+    // plain sibling stacks on top. Mark it and force a row so the order
+    // reads [inked ✓][Follow]. Scoped to this one hover-card div only.
+    followButton.parentElement?.classList.add("xtag-hover-actions");
   } else {
     // No follow button (own profile, blocked) — fall back to a bottom row.
     row.className = ROW_CLASS;
