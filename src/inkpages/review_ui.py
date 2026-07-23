@@ -144,6 +144,9 @@ TEMPLATES = {
   .gate-grid .card { margin-bottom: 0; display: flex; flex-direction: column; }
   .gate-grid .card .grow { flex: 1; }
   .agechip { color: #9aa3b2; font-size: .82em; white-space: nowrap; }
+  /* Bio columns must win the table width fight — squeezed platform/reason
+     columns once crushed bios to one word per line on the Demoted page. */
+  td.biocell { min-width: 24rem; }
 </style></head><body>
 <header>
   <a class="brand" href="{{ url_for('index') }}" data-dirlink>inkpages review</a>
@@ -626,17 +629,26 @@ Removing here = the same rules as the extension: queued rows delete, known rows 
 <p class="muted">Open-harvest accounts that failed the artist-evidence test. Restore
 puts an artist back in the directory and permanently exempts them from auto-demotion.</p>
 {% if not items %}<p class="muted">Nothing here.</p>{% endif %}
-<table>{% if items %}<tr><th></th><th>artist</th><th>platforms</th><th>followers</th><th>reason</th><th>demoted</th><th>bio</th><th></th></tr>{% endif %}
+{% if items %}
+<div class="card review-bar" style="position:sticky;top:0;z-index:5">
+  <button class="ok" form="bulkrestore"
+          data-confirm="Restore all selected artists to the directory? They become permanently exempt from auto-demotion.">Restore selected</button>
+  <span class="muted">{{ items|length }} demoted</span>
+</div>
+{% endif %}
+<form id="bulkrestore" method="post" action="{{ url_for('bulk_restore') }}">{{ csrf() }}</form>
+<table>{% if items %}<tr><th><input type="checkbox" data-checkall="bulkrestore" title="select all"></th><th></th><th>artist</th><th>platforms</th><th>followers</th><th>reason</th><th>demoted</th><th>bio</th><th></th></tr>{% endif %}
 {% for a in items %}<tr>
+  <td><input type="checkbox" form="bulkrestore" name="ids" value="{{ a.id }}"></td>
   <td>{% if a.avatar_url %}<img class="pfp" src="{{ img_src(a.avatar_url) }}" loading="lazy">{% else %}<span class="pfp" style="display:inline-block"></span>{% endif %}</td>
   <td class="trunc" title="{{ a.display_name or '' }} /{{ a.public_slug }}">
       <a href="{{ url_for('artist', artist_id=a.id) }}" target="_blank"><b>{{ a.display_name or a.public_slug }}</b></a><br>
       <span class="muted">/{{ a.public_slug }}</span></td>
-  <td class="muted nowrap">{{ a.platforms or "—" }}</td>
+  <td class="muted">{{ a.platforms or "—" }}</td>
   <td class="nowrap">{{ "{:,}".format(a.followers) if a.followers else "—" }}</td>
-  <td class="nowrap">{% if a.reason %}<span class="chip badge-suppressed">{{ a.reason }}</span>{% endif %}</td>
+  <td>{% if a.reason %}<span class="chip badge-suppressed">{{ a.reason }}</span>{% endif %}</td>
   <td class="nowrap muted">{{ a.demoted_at.date() if a.demoted_at else "—" }}</td>
-  <td>{{ m.bio(a.bio) }}</td>
+  <td class="biocell">{{ m.bio(a.bio) }}</td>
   <td><form class="inline" method="post" action="{{ url_for('restore', artist_id=a.id) }}">{{ csrf() }}
       <button class="ok">Restore</button></form></td>
 </tr>{% endfor %}</table>
@@ -1658,14 +1670,27 @@ def rules():
                                pending=c["pending"], demoted_count=demoted_count(conn))
 
 
+def _restore_one(cur, artist_id: int) -> None:
+    cur.execute("update artists set status = 'active', updated_at = now() where id = %s",
+                (artist_id,))
+    cur.execute("""insert into artist_events (artist_id, event, actor, details)
+                   values (%s, 'unsuppressed', 'admin:review-ui',
+                           '{"reason": "restored_from_demotion"}')""", (artist_id,))
+
+
 @app.route("/artist/<int:artist_id>/restore", methods=["POST"])
 def restore(artist_id):
     with db.connect() as conn, conn.cursor() as cur:
-        cur.execute("update artists set status = 'active', updated_at = now() where id = %s",
-                    (artist_id,))
-        cur.execute("""insert into artist_events (artist_id, event, actor, details)
-                       values (%s, 'unsuppressed', 'admin:review-ui',
-                               '{"reason": "restored_from_demotion"}')""", (artist_id,))
+        _restore_one(cur, artist_id)
+        conn.commit()
+    return redirect(url_for("demoted"))
+
+
+@app.route("/demoted/bulk_restore", methods=["POST"])
+def bulk_restore():
+    with db.connect() as conn, conn.cursor() as cur:
+        for artist_id in request.form.getlist("ids"):
+            _restore_one(cur, int(artist_id))
         conn.commit()
     return redirect(url_for("demoted"))
 
@@ -1716,6 +1741,11 @@ _LOW_SIGNAL_HINTS = {"same_platform_mention", "hub_credits", "website"}
 def artist(artist_id):
     with db.connect() as conn:
         artist = q(conn, "select * from artists where id = %s", (artist_id,))[0]
+        # A merged-away artist is a husk (memberships moved to the keeper) —
+        # its page is an empty, confusing shell. Follow the pointer (chains
+        # are collapsed to one hop at merge time).
+        if artist["merged_into"]:
+            return redirect(url_for("artist", artist_id=artist["merged_into"]))
         accounts = q(conn, """
             select a.id, a.handle::text, a.display_name, a.profile_url, a.avatar_url, a.followers_count, a.status,
                    a.platform_stats, a.last_post_at, a.contact_email, a.commission_status,

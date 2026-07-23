@@ -364,6 +364,10 @@ _LINK_PATTERNS: list[tuple[str, re.Pattern]] = [
     # and site sections are excluded.
     ("weibo", re.compile(r"weibo\.(?:com|cn)/(?:u/)?(?P<native_id>\d{6,})", re.I)),
     ("weibo", re.compile(r"weibo\.(?:com|cn)/(?!u/|n/|p/|tv/|hot/|search|login|signup)(?P<handle>[A-Za-z][A-Za-z0-9_-]{2,29})\b", re.I)),
+    # Display-only like instagram (never fetched, handle shown).
+    ("threads", re.compile(r"threads\.(?:net|com)/@(?P<handle>[A-Za-z0-9._]{1,30})", re.I)),
+    # Bilibili user spaces — uid is the stable identity; display-only.
+    ("bilibili", re.compile(r"space\.bilibili\.com/(?P<native_id>\d+)", re.I)),
     ("facebook", re.compile(r"facebook\.com/profile\.php\?id=(?P<native_id>\d+)", re.I)),
     ("facebook", re.compile(r"facebook\.com/(?!profile\.php|sharer?\b|groups\b|pages\b|events\b|watch\b|marketplace\b|photos?\b|permalink|story|hashtag|login\b|people\b|reel|gaming\b|help\b|policies)(?P<handle>[A-Za-z0-9.]{5,50})", re.I)),
     ("potofu", re.compile(r"potofu\.me/(?P<handle>[\w.-]+)", re.I)),
@@ -384,11 +388,21 @@ _SUBDOMAIN_JUNK = {"www", "blog", "shop", "app", "apps", "help", "about", "suppo
 
 # Scheme fragments and generic page words that path regexes capture as a
 # "handle" from glued or malformed URLs — "instagram.com/https://…" yields
-# handle "https", "tumblr.com/profile" yields "profile". Never an account.
+# handle "https", "tumblr.com/profile" yields "profile", "vgen.co/uploads/…"
+# yields "uploads". Applied to every platform pattern, so a reserved word
+# only needs listing once, not per-pattern. (A real artist handle colliding
+# with one of these is vanishingly rare, and these are follow-on links —
+# roster discovery is unaffected.)
 _RESERVED_HANDLES = _SUBDOMAIN_JUNK | {
     "https", "http", "profile", "share", "home", "index", "search",
     "login", "signup", "account", "accounts", "explore", "watch",
-    "null", "undefined"}
+    "null", "undefined",
+    # asset/site-section path heads seen minting junk accounts:
+    # vgen.co/uploads, cara.app/production, deviantart.com/users,
+    # artstation.com/store, tumblr.com/tags, ko-fi.com/cdn …
+    "user", "users", "uploads", "production", "store", "files", "images",
+    "img", "content", "downloads", "photos", "storage", "sites", "pages",
+    "news", "category", "wiki", "tag", "tags", "post", "posts", "public"}
 
 # A pure long-hex "handle" is a content hash from a CDN URL, not an account.
 _HEX_JUNK = re.compile(r"[0-9a-f]{16,}", re.IGNORECASE)
@@ -407,6 +421,7 @@ _PLATFORM_DOMAINS = {
     "xfolio.jp", "deviantart.com", "tumblr.com", "gumroad.com", "inprnt.com",
     "instagram.com", "tiktok.com", "linktr.ee", "tr.ee", "carrd.co", "potofu.me", "lit.link",
     "misskey.io", "misskey.design", "misskey.art",
+    "threads.net", "threads.com", "space.bilibili.com",
     "mihuashi.com", "youtube.com", "youtu.be", "discord.gg", "discord.com",
     "discordapp.com", "t.me", "telegram.me", "twitch.tv",
     "furaffinity.net", "behance.net", "be.net", "boosty.to", "artfight.net",
@@ -421,12 +436,15 @@ _NON_WEBSITE_DOMAINS = _PLATFORM_DOMAINS | set(SHORTENER_DOMAINS) | {
     "google.com", "forms.gle", "docs.google.com", "drive.google.com",
     "open.spotify.com", "spotify.com", "amazon.com", "amazon.co.jp",
     "amzn.to", "amzn.asia", "apple.com", "paypal.me", "paypal.com",
-    "cash.app", "streamlabs.com", "throne.com", "thron.ee",
+    "cash.app", "streamlabs.com", "throne.com", "thron.ee", "throne.me",
     "donmai.us", "gelbooru.com", "e621.net", "rule34.xxx",
     "safebooru.org", "yande.re", "konachan.com", "sankakucomplex.com",
     "gmail.com", "amazon.jp", "melonbooks.co.jp", "youtube.jp",
     # Storefront/publisher listing pages, not personal sites.
     "dmm.co.jp", "toranoana.jp", "piccoma.com",
+    # bilibili content links (videos etc.) — the identity URL is
+    # space.bilibili.com/<uid>, matched as a platform link.
+    "bilibili.com",
     # Page infrastructure that appears in hub-page href attributes (font
     # stylesheets, CDNs, analytics) — style, not links the artist published.
     "googleapis.com", "gstatic.com", "googletagmanager.com",
@@ -459,10 +477,19 @@ def find_website_links(text: str | None) -> list[PlatformLink]:
     if not text:
         return []
     seen: dict[str, PlatformLink] = {}
+    candidates: list[str] = []
     for m in _GENERIC_URL.finditer(text):
-        if text[m.end():m.end() + 3].startswith(("…", "...", "‥")):
-            continue
-        url = m.group(0).rstrip(".,;:!?)»」】")
+        # Hub pages/bios sometimes glue URLs together with no separator
+        # ("…wixsite.com/portfoliohttp://ping.commishes.com/@x") — the URL
+        # charset can't see the boundary, so split on every embedded scheme
+        # and treat each piece as its own link. A trailing platform-ellipsis
+        # truncation invalidates only the LAST piece.
+        pieces = [p for p in re.split(r"(?=https?://)", m.group(0)) if p]
+        if pieces and text[m.end():m.end() + 3].startswith(("…", "...", "‥")):
+            pieces = pieces[:-1]
+        candidates.extend(pieces)
+    for url in candidates:
+        url = url.rstrip(".,;:!?)»」】")
         domain_match = _DOMAIN_OF.match(url)
         if not domain_match:
             continue

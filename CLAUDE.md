@@ -14,6 +14,36 @@ rationale: `docs/schema.md` and `docs/pipeline.md`. Untapped-source scouting
 
 ## Current state (2026-07-23 eve — junk-link cleanup + review-UI overhaul)
 
+**Round 4 (same evening): reserved-path junk, glued URLs, threads/bilibili.**
+- `_RESERVED_HANDLES` grew to cover asset/site-section path heads captured
+  as handles on ANY platform (vgen.co/uploads had 154 edges,
+  deviantart.com/users 53, cara.app/production 18, artstation/store,
+  tumblr/tags…) — one global list, not per-pattern exclusions. The standing
+  junk sweep now also purges reserved-handle accounts on identity platforms
+  and glued-URL website rows (`handle ~ 'https?:/'`).
+- **Glued URLs split**: bios/hubs concatenate links with no separator
+  ("…wixsite.com/portfoliohttp://ping.commishes.com/@x") — the URL charset
+  can't see the boundary, so `find_website_links` splits candidates on every
+  embedded scheme and processes each piece (trailing-ellipsis truncation
+  invalidates only the last piece).
+- **Merged-away artists**: `merge_artists` now resolves pending anomaly
+  items about absorbed artists instantly (`pipeline:merged_away`) — an
+  admin-triggered merge no longer strands a ghost item until the next 5c
+  recheck. `/artist/<id>` follows `merged_into` (husk pages redirected to
+  the keeper).
+- **threads + bilibili are display-only platforms** (migration 0037,
+  patterns threads.net|com/@handle + space.bilibili.com/uid; existing
+  website rows reclassified — 41 threads, 46 bilibili; bare bilibili.com
+  video links and throne.me (wishlist variant) join _NON_WEBSITE_DOMAINS).
+- **Demoted page**: bulk restore (checkboxes + select-all + sticky bar),
+  bio column gets `td.biocell` min-width (platform lists were crushing bios
+  to a word per line), platforms/reason/date columns.
+- Detect candidates for future sources (from website-host frequency):
+  toyhou.se (195 rows), foriio/fori.io (112), curiouscat me/qa/live (259),
+  marshmallow-qa (154), retrospring (122), odaibako (67), beacons.ai hub
+  (20), poipiku (24), suzuri (31). None wired yet — ask-box/profile
+  services would be display-or-crawl platforms like potofu/litlink.
+
 **Round 3 (same evening): anomaly self-healing + page parity + 🔒.**
 - **Anomalies heal themselves** (cluster.py step 5c): every cluster run
   re-checks pending anomaly items against CURRENT metrics — an item whose

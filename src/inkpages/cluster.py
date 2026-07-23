@@ -160,6 +160,17 @@ def merge_artists(conn, keeper: int, losers: list[int], actor: str = "pipeline")
                 """insert into artist_events (artist_id, event, actor, details)
                    values (%s, 'merged', %s, %s)""",
                 (loser, actor, json.dumps(details)))
+            # A pending anomaly flag about the absorbed artist is moot the
+            # moment it stops existing — resolve NOW rather than leaving a
+            # ghost item until the next cluster run's 5c recheck (an admin
+            # merge from the review UI would otherwise strand it).
+            cur.execute(
+                """update review_items
+                   set status = 'rejected', resolved_at = now(),
+                       decided_by = 'pipeline:merged_away'
+                   where status = 'pending' and kind = 'other'
+                     and payload ->> 'type' = 'anomaly'
+                     and (payload ->> 'artist_id')::bigint = %s""", (loser,))
 
 
 def flip_to_connection(conn, edge_id: int, hint: str) -> None:
@@ -226,26 +237,35 @@ def add_review_item(conn, kind: str, payload: dict, stats: Counter) -> None:
 
 
 def purge_junk_website_accounts(conn, stats: Counter) -> None:
-    """Standing sweep: website accounts whose host is on the extraction
-    blocklist (_NON_WEBSITE_DOMAINS — ad networks, CDNs, content
-    shortlinks) or whose path is a static asset file (_ASSET_EXT) are
-    artifacts of page markup, never anyone's site. The extraction guards
-    stop new ones, but edges evidenced by hub crawls are out of reextract's
-    reach — so growing the blocklist in extract.py auto-cleans historical
-    rows here on the next pipeline run. Retract their edges, close any
-    memberships, hide the accounts. Idempotent."""
-    from .extract import _ASSET_EXT, _NON_WEBSITE_DOMAINS
+    """Standing sweep: link-artifact accounts that page markup minted —
+    website rows on a blocklisted host (_NON_WEBSITE_DOMAINS), static
+    asset files (_ASSET_EXT), glued double-URLs, and reserved path words
+    captured as handles on any platform (_RESERVED_HANDLES: vgen.co/
+    uploads, deviantart.com/users…). The extraction guards stop new ones,
+    but edges evidenced by hub crawls are out of reextract's reach — so
+    growing the guard lists in extract.py auto-cleans historical rows here
+    on the next pipeline run. Retract their edges, close any memberships,
+    hide the accounts. Idempotent."""
+    from .extract import _ASSET_EXT, _NON_WEBSITE_DOMAINS, _RESERVED_HANDLES
 
     with conn.cursor() as cur:
         cur.execute(
             """select a.id from accounts a
                join platforms p on p.id = a.platform_id
-               where p.slug = 'website' and a.status <> 'hidden'
-                 and (split_part(a.handle::text, '/', 1) ~* ('(^|\\.)('
-                        || array_to_string(%(domains)s::text[], '|') || ')$')
-                      or a.handle::text ~* %(asset_re)s)""",
+               where (p.slug = 'website' and a.status <> 'hidden'
+                      and (split_part(a.handle::text, '/', 1) ~* ('(^|\\.)('
+                             || array_to_string(%(domains)s::text[], '|') || ')$')
+                           or a.handle::text ~* %(asset_re)s
+                           -- glued URLs: an embedded second scheme means two
+                           -- links fused into one handle
+                           or a.handle::text ~* 'https?:/'))
+                  -- reserved path words captured as handles on any platform
+                  -- (vgen.co/uploads, deviantart.com/users, cara.app/production)
+                  or (p.slug not in ('website', 'bluesky') and a.status <> 'hidden'
+                      and lower(a.handle::text) = any(%(reserved)s))""",
             {"domains": [re.escape(d) for d in sorted(_NON_WEBSITE_DOMAINS)],
-             "asset_re": _ASSET_EXT.pattern})
+             "asset_re": _ASSET_EXT.pattern,
+             "reserved": sorted(_RESERVED_HANDLES)})
         junk = [row[0] for row in cur.fetchall()]
         if not junk:
             return
