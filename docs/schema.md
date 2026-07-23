@@ -51,7 +51,7 @@ attestations/suppressions) is the only publish surface, and
 | `account_snapshots` | Append-only hydration observations; all extraction re-runs from these |
 | `identity_edges` | Directed artist-published claims with evidence snapshot FKs; `claim` separates `same_person` (clusters) from `related` (partner/pfp-artist/bare mention — graph only, never merges) |
 | `discovery_hints` | Quarantined third-party assertions (boorus etc.), pending verification |
-| `artists` | Stable public entities (slug, region, status, `merged_into` pointer) |
+| `artists` | Stable public entities (slug, `language` ∈ ja/en/ko/zh/th/ru/ar/unknown, eastern/western `region`, status, `merged_into` pointer) |
 | `artist_accounts` | Cluster membership with confidence tier and open/closed history |
 | `artist_events` | Append-only audit of merges, splits, overrides |
 | `attestations` | Per-account no-AI signals with first/last seen |

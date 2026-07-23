@@ -67,15 +67,20 @@ robots + content signals honored.
   channels; pawoo.net is the pixiv-adjacent Mastodon instance — same
   pattern via the Mastodon public API).
 
-## Tumblr — 1,568 accounts already in DB (OFFICIAL API, NEEDS A FREE KEY)
+## Tumblr — LANDED 2026-07-23 (OFFICIAL API, enrichment-only)
 
+- **Status: DONE.** User registered the free API key (tumblr.com/oauth/apps);
+  `discover_tumblr --hydrate-known` drained the full held backlog (~2,470
+  blogs hydrated). Enrichment-only, exactly as scouted — no roster facet.
 - **Access**: official API v2. `GET /v2/blog/{name}/info?api_key=…` returns
   the blog description (→ bio links), title, avatar, and whether it's adult-
-  flagged. Registration is free (needs a Tumblr account — **user action**).
+  flagged.
 - **Limits**: default keys are rate-limited (~300 req/min, ~5k/day) — the
-  1,568-blog backfill fits in a day, refreshes are cheap.
-- **Discovery**: weak (no popularity sort on /tagged since 2018) — treat
-  tumblr as enrichment of existing accounts, not a roster source.
+  backfill fits in a day, refreshes are cheap.
+- **Discovery**: weak (no popularity sort on /tagged since 2018) — tumblr
+  stays enrichment of existing accounts, never a roster source. Held rows
+  reappear as new bios reference new blogs; a routine `--hydrate-known`
+  each round keeps them current.
 
 ## Cara — cara.app (BLOCKED, WATCH)
 
@@ -134,11 +139,15 @@ robots + content signals honored.
 
 ## Priority order (roster value × alignment × effort)
 
-1. **VGen** — full worker (roster via category listings + profile
-   hydration); lands tags, authoritative comms status, registered socials.
-2. **Itaku** — full worker on the public API; aligned community, rich tags.
-3. **Misskey cross-hydration** — smallest job, 598 accounts, free edges.
-4. **Tumblr enrichment** — blocked on the user registering a free API key.
-5. **Mihuashi display-only platform row** — one migration + pattern, no
+VGen, Misskey and Tumblr all LANDED (2026-07-23). Remaining:
+
+1. **Skeb sliced harvest** — escape the 1,200-row Algolia page cap with
+   `numericFilters` on `received_works_count` (≥100 ≈ 4.5k creators); paid
+   Twitter follow-on, so gate on real X credit. See `[[skeb-algolia-headroom]]`.
+2. **VGen sitemap-scale re-walk** — the ~124k permitted sitemap artist URLs
+   are mostly untouched; harvest with a `totalReviews` floor.
+3. **Itaku** — full worker on the public API; aligned community, rich tags.
+   (Currently skipped by user directive — revisit if reprioritized.)
+4. **Mihuashi display-only platform row** — one migration + pattern, no
    fetching.
 6. Cara: wait for the official API. Instagram: permanently display-only.

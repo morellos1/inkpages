@@ -148,6 +148,15 @@ including hub-mediated reciprocity. Then:
 - All merges/splits/attachments emit `artist_events`; clustering never
   overrides a `removed_at` membership closed by a human.
 
+Standing hygiene sweeps run every clustering pass (idempotent, text/pattern
+based, never touching human decisions): the junk-website purge (link
+artifacts, asset paths, glued URLs, reserved-path handles — growing the guard
+lists auto-cleans historical hub-crawl edges reextract can't reach), the
+project-account flagger (zines/anthologies parsed out of clustering), and the
+YouTube channel-id dedup (an artist holding both youtube.com/@name and
+youtube.com/channel/UC… for one channel keeps the named account, retires the
+url-form duplicate).
+
 New clusters get `artists` rows with generated slugs; membership changes to
 existing artists preserve slugs and moderation state.
 
@@ -156,7 +165,17 @@ existing artists preserve slugs and moderation state.
 Region (pipeline-critical, not optional): `bio_langs` + platform fingerprint
 (Skeb/Pixiv/XFolio lean Eastern; ArtStation/Patreon lean Western) → per-artist
 `region` with confidence; `region_source = 'manual'` overrides always win.
-Low-confidence artists surface in a review queue rather than guessing.
+Low-confidence artists surface in a review queue rather than guessing. (The
+eastern/western `region` still drives the stratified ranking cut but is no
+longer surfaced in the review UI — `language` is the reader-facing axis.)
+
+Language is script-detected over member bios + display names: kana → ja,
+hangul → ko, han → zh, then Thai → th, a 4+ Cyrillic run → ru, Arabic → ar,
+Latin → en, else unknown. The non-Latin scripts run before the Latin fallback
+so they aren't mis-bucketed 'en'; Cyrillic needs a 4-char run because its
+Latin-lookalike glyphs get used decoratively in stylized English names.
+Latin-script languages (es/fr/de/pt) all collapse to en — script detection
+can't separate them, and statistical language ID isn't wired in.
 
 Ranking: within-region follower ranking on the primary platform. Separate
 cuts recorded as `ranking_runs`: top 10k Twitter split Eastern/Western, top 5k

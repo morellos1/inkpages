@@ -9,10 +9,104 @@ is displayed strictly as the artist's own attestation, never our classification.
 
 Full brief: `~/Desktop/artist-directory-brief.md` (outside the repo). Design
 rationale: `docs/schema.md` and `docs/pipeline.md`. Untapped-source scouting
-(vgen/itaku/misskey/tumblr next; cara+mihuashi+instagram no-go, with reasons):
+(cara+mihuashi+instagram no-go, with reasons; tumblr now LANDED):
 `docs/source-scouting.md` (probed live 2026-07-22).
 
-## Current state (2026-07-23 eve — data-hygiene day: junk purge, review UX, self-healing queue)
+## Current state (2026-07-23 night — free-hydration marathon + artifact/UI/language cleanup)
+
+**Directory 9,247 listed** (en 4,602 / ja 3,691 / zh 676 / ko 223 / th 31 /
+ru 13 / ar 2 / unknown 9), ~83.7k accounts, review queue **242 pending**
+(140 singleton_gate / 87 other / 15 cluster_merge). Migrations at **0038**.
+Paid X spend **$127.10 of the $200 cap** ($10.56 today across two backlog
+rings under the <$10 standing rule; real X-console credit is the true
+ceiling and was estimated ~$10 before today — VERIFY/top up before the next
+paid run). Smoke green.
+
+**The day's arc: clear every free hydration backlog, then clean what the
+fresh data surfaced.**
+- **Bluesky `--hydrate-known` built** (the mode never existed — the worker
+  only hydrated roster arrivals, so ~2.2k bio-link/hub-discovered accounts
+  sat permanently unhydrated, a hole in the cross-hydration rule). Batches
+  held rows through the free public AppView `getProfiles`, backfills DIDs
+  onto handle-only rows via claim-by-handle (safe: bluesky handles are
+  globally unique), retires stale handle aliases whose DID already has a
+  row, marks unresolvable actors deleted. 2,115 hydrated, 67 dead, 52 no-AI
+  attestations. Mixed-case held handles are lowercased first.
+- **DeviantArt hydration parser re-fixed after a DA markup change**
+  (`[[da-page-markup-2026-07]]`): `__INITIAL_STATE__` now embeds
+  `_inlineContent` scripts so the JSON literal contains `");` — the old
+  non-greedy regex truncated the capture (a backfill reported thousands of
+  `state_parse_failed`, 0 hydrated). Fixed: find the closing quote by
+  walking escapes. Full user objects also moved to the normalized
+  `@@entities.user` store (`profileOwner.user` shrank to `{id}`);
+  `profile_fields` follows the reference (username-guarded). ~2,540 held DA
+  accounts then hydrated across a self-retrying block-aware loop.
+- **VGen backlog cleared** (744 hydrated, ~2,300 registered-social edges).
+- **Tumblr enrichment DONE** — user registered the free API key;
+  `discover_tumblr --hydrate-known` drained the full held backlog (~2,470
+  hydrated + a final drip). Tumblr is enrichment-only (no roster facet);
+  accounts arrive via bio_link/link_hub then hydrate to bios/avatars/edges.
+- **Skeb Algolia headroom mapped** (`[[skeb-algolia-headroom]]`, no import
+  yet): public User index = 224.6k creators, 1,200-row page cap (why the
+  ranked harvest tops ~1k), but `numericFilters` on `received_works_count`
+  slice past the cap; filtered counts are approximate. Skeb carries NO
+  follower field — a ">500 followers" bar is a paid Twitter post-filter
+  (~$10/1k imported). Use `received_works_count` (≥100 ≈ 4.5k creators) as
+  the free quality bar instead.
+
+**Artifact/UI/language cleanup (from user review of live pages — committed
+`31e2f89`):**
+- **DeviantArt path artifacts purged**: `stash`, `journal`, `journals`,
+  `favourites`, `deviations`, `daily-deviations`, `groups` added to
+  `_RESERVED_HANDLES` (deviantart.com/stash etc. minted junk deviantart
+  accounts). The standing purge now also retracts lingering PRESENT edges
+  on already-hidden/deleted junk (a re-crawled hub re-adds them and they
+  kept rendering in Connections — the status guard used to skip them);
+  'deleted' rows keep their status instead of flipping to hidden. Cleared
+  99 lingering edges on stash/journal/http.
+- **YouTube channel-id dedup** (`cluster.dedup_youtube_channel_accounts`,
+  runs every pass): when an artist holds both a named youtube
+  (youtube.com/@name) and a channel-id-only one (youtube.com/channel/UC…,
+  24-char handle) for the same channel, keep the named one and retire the
+  url-form duplicate. Only fires when a named account exists to prefer;
+  channel-id-only artists keep theirs. Cleared 8.
+- **no-AI badge/flag removed from the directory UI** as misleading to end
+  users (it read as our label, not the artist's attestation): gone from the
+  index table, artist header, stats tile, and filter checkbox — `no_ai`
+  stays in `FLAG_SQL` so legacy `?flag=no_ai` URLs still resolve. The
+  reviewer-facing **Signals** evidence table keeps attestation provenance
+  (it labels a self-signal's TYPE, not a directory claim). **Eastern/western
+  region line removed** from the artist page (language is the useful axis).
+- **Languages beyond CJK/Latin**: `classify_region.detect_language` now
+  script-detects Thai (`th`), Cyrillic→`ru`, Arabic (`ar`) before the Latin
+  fallback that used to bucket them 'en'/'unknown' (33 th / 14 ru / 2 ar
+  found). Cyrillic needs a **4+ char run** to reject Latin-lookalike
+  decorative names (`🏝️кⒶσѕ ρυик` is stylized English, not Russian — this
+  false positive is why); Thai/Arabic need 2 (no Latin-lookalike use).
+  Migration 0038 widens `artists_language_check`. The /sources language
+  filter is data-driven so the new buckets appear automatically.
+  **Latin-script langs (es/fr/de/pt) still collapse to 'en'** — script ID
+  alone can't separate them; that needs statistical language detection.
+
+**Frontier residue** (fine to fold into the next routine pipeline round):
+~544 bluesky / 101 vgen / 41 tumblr / 7 DA held accounts reappeared — the
+fresh enrichment refreshed the bio frontier (expected after new sources).
+
+**Next up (in priority order):**
+1. **Work the review queue** (242 pending — 140 singleton_gate one-click
+   legitimizes a whole component) + Demoted page.
+2. **Skeb sliced harvest** at `received_works_count ≥ 100–200` (escapes the
+   1,200-row cap via numericFilters) — after verifying/topping up real X
+   credit, since it mints paid Twitter follow-on.
+3. **VGen sitemap-scale harvest** with a `totalReviews` floor (the ~124k
+   sitemap artist URLs are permitted and mostly untouched).
+4. **Cara re-probe** for an official API (never circumvent bot protection).
+5. Recurring skims: DA popular rotation, pixiv tag rounds, bluesky
+   list/starter-pack expansion (still unbuilt — the one place a >500
+   follower filter is FREE), vgen tier-1/2 re-walks. X spend standing rule:
+   auto-run hydration backlog rings < $10; stop when yield collapses.
+
+## Previous state (2026-07-23 eve — data-hygiene day: junk purge, review UX, self-healing queue)
 
 **Directory ~8,600 artists, review queue 116 pending** (was ~320 this
 morning). Migrations at 0037. Paid X spend unchanged ($116.54 of the $200
