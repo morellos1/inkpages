@@ -565,9 +565,13 @@ def main() -> None:
                 # combined cluster would breach the same-platform cap or more
                 # than two artists are involved.
                 ids = sorted(artist_ids)
-                combined: Counter = Counter()
+                existing: Counter = Counter()
                 for aid in ids:
-                    combined += platform_counts[aid]
+                    existing += platform_counts[aid]
+                # Cap check counts the whole would-be cluster; the keeper's
+                # tally keeps only current members — unclustered ones are
+                # counted once by note_attach when they actually attach.
+                combined = +existing
                 for m in members:
                     if m not in membership and m in accounts:
                         combined[accounts[m]["platform_slug"]] += 1
@@ -581,7 +585,7 @@ def main() -> None:
                     for acc, aid in list(membership.items()):
                         if aid == loser:
                             membership[acc] = keeper
-                    platform_counts[keeper] = combined
+                    platform_counts[keeper] = existing
                     stats["auto_merged"] += 1
                     artist_id = keeper
                 else:
@@ -634,6 +638,10 @@ def main() -> None:
                     continue
                 artist_id = create_artist(conn, anchor)
                 membership[anchor["id"]] = artist_id
+                # Count the anchor's platform: artists created this run start
+                # with an empty tally, which under-enforced the same-platform
+                # cap (a second twitter could attach as if it were the first).
+                note_attach(artist_id, anchor["id"])
                 stats["artists_created"] += 1
             for m in members:
                 if (m not in membership and not db.is_suppressed(conn, m)
@@ -659,8 +667,9 @@ def main() -> None:
                 continue
             if db.is_suppressed(conn, src) or not cap_ok(membership[tgt], src):
                 continue
-            add_member(conn, membership[tgt], src, "near_proof",
-                       {"via": "platform_verified_link", "edge_id": edge["id"]})
+            if not add_member(conn, membership[tgt], src, "near_proof",
+                              {"via": "platform_verified_link", "edge_id": edge["id"]}):
+                continue  # human closed this membership — don't fake it in memory
             membership[src] = membership[tgt]
             note_attach(membership[src], src)
             stats["reverse_attached"] += 1
@@ -703,6 +712,7 @@ def main() -> None:
                     continue
                 artist_id = create_artist(conn, account)
                 membership[account["id"]] = artist_id
+                note_attach(artist_id, account["id"])
                 stats["singleton_artists"] += 1
 
         # 3b. Retroactive: demote existing single-account artists from open

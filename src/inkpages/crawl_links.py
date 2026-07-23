@@ -391,11 +391,16 @@ def main() -> None:
                          and a.status <> 'deleted'""",
                     (args.recrawl_platform,))
             else:
+                # Weekly, not every run: a JS-rendered hub (Carrd) crawls
+                # clean but yields 0 links forever — re-nulling those each
+                # run burned ~60 fetches of the hub budget on known-empty
+                # pages ahead of never-crawled ones.
                 cur.execute(
                     """update accounts a set last_hydrated = null
                        from platforms p
                        where p.id = a.platform_id and p.kind = 'link_hub'
                          and a.last_hydrated is not null and a.status <> 'deleted'
+                         and a.last_hydrated < now() - interval '7 days'
                          and not exists (select 1 from identity_edges e
                                          where e.source_account_id = a.id)""")
         resolve_shorteners(conn, plain, platforms, stats)

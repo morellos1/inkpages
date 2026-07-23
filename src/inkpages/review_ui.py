@@ -1766,7 +1766,10 @@ _LOW_SIGNAL_HINTS = {"same_platform_mention", "hub_credits", "website"}
 @app.route("/artist/<int:artist_id>")
 def artist(artist_id):
     with db.connect() as conn:
-        artist = q(conn, "select * from artists where id = %s", (artist_id,))[0]
+        rows = q(conn, "select * from artists where id = %s", (artist_id,))
+        if not rows:
+            abort(404)  # dangling link after a hard delete — not a 500
+        artist = rows[0]
         # A merged-away artist is a husk (memberships moved to the keeper) —
         # its page is an empty, confusing shell. Follow the pointer (chains
         # are collapsed to one hop at merge time).
@@ -2691,17 +2694,20 @@ def xtag_dashboard():
             {base_sql}
             order by a.id desc limit {per} offset {(page - 1) * per}""", params)
         stats = q(conn, """
-            select count(*) as tagged,
-                   count(*) filter (where a.last_hydrated is null
+            -- distinct account ids: an account with membership history
+            -- (removed + re-added rows) joins several artist_accounts rows
+            -- and count(*) once double-counted 52 of them.
+            select count(distinct a.id) as tagged,
+                   count(distinct a.id) filter (where a.last_hydrated is null
                                     and a.status = 'unknown') as queued,
-                   count(*) filter (where a.last_hydrated is not null
+                   count(distinct a.id) filter (where a.last_hydrated is not null
                                     and a.status not in ('hidden','deleted')) as hydrated,
-                   count(distinct aa.artist_id)
-                       filter (where aa.removed_at is null) as artists,
-                   count(*) filter (where a.status in ('hidden','deleted')) as removed
+                   count(distinct aa.artist_id) as artists,
+                   count(distinct a.id) filter (where a.status in ('hidden','deleted')) as removed
             from accounts a
             join platforms p on p.id = a.platform_id and p.slug = 'twitter'
             left join artist_accounts aa on aa.account_id = a.id
+                 and aa.removed_at is null
             where a.discovered_via = 'manual_tag'""")[0]
         hubs_uncrawled = cached("xtag_hubs", lambda: q(conn, """
             select count(*) n from accounts h

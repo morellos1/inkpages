@@ -16,11 +16,24 @@ rationale: `docs/schema.md` and `docs/pipeline.md`. Untapped-source scouting
 
 **Directory 9,247 listed** (en 4,602 / ja 3,691 / zh 676 / ko 223 / th 31 /
 ru 13 / ar 2 / unknown 9), ~83.7k accounts, review queue **242 pending**
-(140 singleton_gate / 87 other / 15 cluster_merge). Migrations at **0038**.
+(140 singleton_gate / 87 other / 15 cluster_merge). Migrations at **0039**.
 Paid X spend **$127.10 of the $200 cap** ($10.56 today across two backlog
 rings under the <$10 standing rule; real X-console credit is the true
 ceiling and was estimated ~$10 before today — VERIFY/top up before the next
 paid run). Smoke green.
+
+**Bugfix/optimization pass (2026-07-23 late night):** cluster.py in-run
+platform-cap accounting fixed — artists created mid-run never counted their
+anchor's platform (cap under-enforced: a second twitter could attach as if
+first) and step-2 merges double-counted unclustered members (cap
+over-enforced); step-2b now honors add_member's human-closed refusal instead
+of poisoning the in-memory membership map. /xtag stats deduped (accounts
+with membership history double-counted — 52 inflated), unknown /artist/<id>
+is a 404 not a 500, crawl_links re-crawls known-empty hubs (JS-rendered
+Carrds) weekly instead of every run (~60 wasted fetches/run ahead of
+never-crawled hubs). Migration **0039**: expression index on
+lower(handle::text) — /api/x/status was a 25ms seq scan per x-tag page scan,
+now 0.09ms. Smoke green; cluster ran clean post-fix.
 
 **The day's arc: clear every free hydration backlog, then clean what the
 fresh data surfaced.**
