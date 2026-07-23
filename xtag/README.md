@@ -15,6 +15,10 @@ optionally a pipeline pass so the new artists actually list.
    prints the x-tag API token (also in `.env` as `INKPAGES_TAG_TOKEN`).
    Open the extension popup, paste the token, **Save & test**.
 
+Run the review UI in its **own dedicated terminal**, not inside a Claude
+Code session — those stop the server to run pipeline commands, so it flaps
+up/down and the extension goes stateless every time it's down.
+
 ## What you get on x.com
 
 - **Badges** next to names everywhere: green `INK` = in the directory,
@@ -68,3 +72,16 @@ request DB connections, chunked writes); checkbox selections are per-browser
 
 Suppressed artists are never silently re-added by tagging — the extension
 tells you to lift the suppression in the review UI instead.
+
+## Troubleshooting
+
+**All my tags vanished / everyone shows "+ ink".** The review UI server is
+down (or unreachable). The extension holds no state of its own — every badge
+and button is derived from a live `/api/x/status` call, so with the server
+down the whole page renders untracked. Your tags are safe (they live in
+Postgres); start the server and reload the X tab. A *transient* outage (the
+server briefly starved mid-pipeline) no longer strips badges: a failed
+lookup resolves to an internal `unknown` state that leaves the existing UI
+in place and retries on the next scan. A *sustained* outage (server not
+running at all) still shows everything as untracked — there's nothing to
+preserve on a fresh page.

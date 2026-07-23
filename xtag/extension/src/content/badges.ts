@@ -119,6 +119,10 @@ function findVerifiedAnchor(root: HTMLElement): HTMLElement | null {
 }
 
 function applyBadge(container: HTMLElement, handle: string, info: XtagInfo): void {
+  // Server unreachable (e.g. mid-pipeline): we don't know the state, so leave
+  // whatever badge is already there rather than stripping a real tag. It
+  // refreshes on the next scan once status lookups succeed again.
+  if (info.state === "unknown") return;
   const existing = container.querySelector<HTMLElement>(`:scope .${BADGE_CLASS}`);
   const text = BADGE_TEXT[info.state];
   if (!text) {

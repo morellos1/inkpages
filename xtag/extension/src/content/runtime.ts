@@ -53,7 +53,12 @@ export function getState(handle: string): Promise<XtagInfo> {
           console.warn("[xtag] status lookup failed:", error);
         }
         for (const [h, resolvers] of batch) {
-          const info = cachedState(h) ?? { state: "untracked" as const };
+          // A failed lookup resolves to "unknown", never "untracked": we don't
+          // know the state, so features leave existing badges/buttons intact
+          // rather than treating the handle as un-tagged. Not cached — the next
+          // scan (scroll/mutation) retries, so it self-heals once the server is
+          // back (e.g. after a pipeline pass finishes hammering the DB).
+          const info = cachedState(h) ?? { state: "unknown" as const };
           resolvers.forEach((fn) => fn(info));
         }
       }, 80);

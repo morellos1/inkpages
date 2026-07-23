@@ -19,6 +19,23 @@ morning). Migrations at 0037. Paid X spend unchanged ($116.54 of the $200
 cap; real console credit ~$10 — top up before the next tagging session).
 Smoke green. Sources/rules pages, README and this file refreshed.
 
+**x-tag server must run in its OWN terminal, not a CC session (2026-07-23
+late):** the extension is a thin client — with `review_ui` down, EVERY
+profile's status lookup fails and the whole page renders untracked (badges
+vanish, buttons all read "+ ink"). This was the "tags disappear when a
+pipeline runs" mystery: the server was being started inside Claude Code
+sessions, which stop it to run pipeline commands, so it flapped up/down and
+took the badges with it (tags themselves are always safe — 2,728
+manual_tag rows, DB-derived state, cull-exempt). Fix is operational: run
+`uv run python -m inkpages.review_ui` in a dedicated terminal so pipeline
+runs never knock it over. Client also hardened to degrade gracefully: a
+failed `/api/x/status` now resolves to a new `unknown` state (not
+`untracked`) — badges/buttons stay put through a transient blip and
+self-heal on the next scan (`xtag/extension/src`: `core/x.ts` state,
+`content/runtime.ts` fallback, `content/badges.ts` + `content/action-
+button.ts` leave existing UI intact on `unknown`). Rebuild after editing:
+`cd xtag && npm run build`, then reload the unpacked extension.
+
 **Standing hygiene machinery (the durable outcome of today):**
 - `cluster.purge_junk_website_accounts` runs every cluster pass: retracts +
   hides link-artifact accounts — website rows on blocklisted hosts

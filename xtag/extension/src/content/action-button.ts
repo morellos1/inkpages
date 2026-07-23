@@ -63,6 +63,11 @@ export function createActionButton(handle: string, compact = false): HTMLButtonE
   let current: XtagInfo = { state: "untracked" };
 
   const render = (info: XtagInfo): void => {
+    // Server unreachable (e.g. mid-pipeline): keep the last-known face rather
+    // than flipping a tagged profile back to "+ ink". The next successful sync
+    // corrects it. current.state stays as-is so a click still acts on the last
+    // known state (and tagging is idempotent server-side regardless).
+    if (info.state === "unknown") return;
     current = info;
     const face = faceFor(info);
     button.textContent = face.label;

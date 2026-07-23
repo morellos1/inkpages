@@ -7,7 +7,12 @@
 //           already attached the account somewhere)
 // tagged  = hydrated, awaiting/held from its cluster pass (green)
 // listed  = member of a visible directory artist (green)
-export type XtagState = "untracked" | "queued" | "tagged" | "tracked" | "listed" | "removed";
+// unknown = client couldn't reach the review-UI server (e.g. a pipeline run
+//           briefly starves it). NOT a confirmed "untracked": features must
+//           preserve whatever is already on screen rather than clear it, and
+//           it is never cached so the next scan retries.
+export type XtagState =
+  | "untracked" | "queued" | "tagged" | "tracked" | "listed" | "removed" | "unknown";
 
 export interface XtagInfo {
   state: XtagState;
