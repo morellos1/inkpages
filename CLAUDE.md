@@ -12,121 +12,80 @@ rationale: `docs/schema.md` and `docs/pipeline.md`. Untapped-source scouting
 (vgen/itaku/misskey/tumblr next; cara+mihuashi+instagram no-go, with reasons):
 `docs/source-scouting.md` (probed live 2026-07-22).
 
-## Current state (2026-07-23 eve — junk-link cleanup + review-UI overhaul)
+## Current state (2026-07-23 eve — data-hygiene day: junk purge, review UX, self-healing queue)
 
-**Round 4 (same evening): reserved-path junk, glued URLs, threads/bilibili.**
-- `_RESERVED_HANDLES` grew to cover asset/site-section path heads captured
-  as handles on ANY platform (vgen.co/uploads had 154 edges,
-  deviantart.com/users 53, cara.app/production 18, artstation/store,
-  tumblr/tags…) — one global list, not per-pattern exclusions. The standing
-  junk sweep now also purges reserved-handle accounts on identity platforms
-  and glued-URL website rows (`handle ~ 'https?:/'`).
-- **Glued URLs split**: bios/hubs concatenate links with no separator
-  ("…wixsite.com/portfoliohttp://ping.commishes.com/@x") — the URL charset
-  can't see the boundary, so `find_website_links` splits candidates on every
-  embedded scheme and processes each piece (trailing-ellipsis truncation
-  invalidates only the last piece).
-- **Merged-away artists**: `merge_artists` now resolves pending anomaly
-  items about absorbed artists instantly (`pipeline:merged_away`) — an
-  admin-triggered merge no longer strands a ghost item until the next 5c
-  recheck. `/artist/<id>` follows `merged_into` (husk pages redirected to
-  the keeper).
-- **threads + bilibili are display-only platforms** (migration 0037,
-  patterns threads.net|com/@handle + space.bilibili.com/uid; existing
-  website rows reclassified — 41 threads, 46 bilibili; bare bilibili.com
-  video links and throne.me (wishlist variant) join _NON_WEBSITE_DOMAINS).
-- **Demoted page**: bulk restore (checkboxes + select-all + sticky bar),
-  bio column gets `td.biocell` min-width (platform lists were crushing bios
-  to a word per line), platforms/reason/date columns.
-- Detect candidates for future sources (from website-host frequency):
-  toyhou.se (195 rows), foriio/fori.io (112), curiouscat me/qa/live (259),
-  marshmallow-qa (154), retrospring (122), odaibako (67), beacons.ai hub
-  (20), poipiku (24), suzuri (31). None wired yet — ask-box/profile
-  services would be display-or-crawl platforms like potofu/litlink.
+**Directory ~8,600 artists, review queue 116 pending** (was ~320 this
+morning). Migrations at 0037. Paid X spend unchanged ($116.54 of the $200
+cap; real console credit ~$10 — top up before the next tagging session).
+Smoke green. Sources/rules pages, README and this file refreshed.
 
-**Round 3 (same evening): anomaly self-healing + page parity + 🔒.**
-- **Anomalies heal themselves** (cluster.py step 5c): every cluster run
-  re-checks pending anomaly items against CURRENT metrics — an item whose
-  artist/account no longer trips any threshold resolves as
-  `pipeline:anomaly_cleared` (human-decided items untouched). First run
-  after the junk purges cleared 51; re-clustering the cleaned graph also
-  attached 100 members and auto-merged 4 pairs. Queue now 129 pending.
-- **Demoted/Removed pages match the review UI**: pfps, clickable
-  acct_link handles, target=_blank artist links, demotion reason +
-  date chips, suppression ages. The Removed page's hidden-accounts table
-  shows identity platforms only (cap 500 by followers) — the ~10k hidden
-  website-link artifacts from the junk sweeps appear as a count line, not
-  rows (extraction artifacts, not restorable accounts).
-- **Private twitter accounts show a 🔒** ("private" chip on artist pages
-  via the stats macro, lock on directory account chips). `protected` was
-  always fetched and stored in snapshot raw; hydration now writes it to
-  `platform_stats` (merge) and migration 0036 backfilled the population
-  free from latest snapshots — 305 private of 10,201 flagged.
-- Low-signal connections toggle: state tracked in `data-open`, not by
-  matching the button label (leading whitespace made startsWith fail and
-  the label render inverted).
+**Standing hygiene machinery (the durable outcome of today):**
+- `cluster.purge_junk_website_accounts` runs every cluster pass: retracts +
+  hides link-artifact accounts — website rows on blocklisted hosts
+  (`extract._NON_WEBSITE_DOMAINS`), static asset paths (`_ASSET_EXT`),
+  glued double-URLs (`handle ~ 'https?:/'`), and reserved path words as
+  handles on ANY platform (`_RESERVED_HANDLES`: https/users/uploads/
+  production/store/tags…). Growing a guard list in extract.py auto-cleans
+  historical rows on the next run — that matters because hub-crawl-
+  evidenced edges are outside reextract's reach.
+- **Anomalies self-heal** (cluster step 5c): pending anomaly items re-check
+  against current metrics each run; fixed causes resolve as
+  `pipeline:anomaly_cleared`. `merge_artists` resolves items about absorbed
+  artists instantly (`pipeline:merged_away`). Human-decided items are never
+  touched.
+- Extraction guards added today: reserved-handle set, trailing-dot
+  truncation, exact-platform-domain handles (bluesky exempt; julia_dreams.co
+  and yun..art are REAL handles — only exact matches are junk), glued-URL
+  splitting in `find_website_links`, asset-extension rejection.
+  `discover_deviantart` drops DA→DA mentions wholesale when a page mentions
+  >5 distinct deviants (`MAX_MENTIONS_PER_PAGE` — group rosters).
+- Cleanup totals: ~10,200 artifact accounts hidden, ~35k junk edges
+  retracted (migrations 0034/0035 + sweep runs), 15,202 DA roster-mention
+  edges, 111 threshold-stale + 51 recheck-stale + merged-away anomaly items
+  auto-resolved. Anomaly thresholds: HUB_FANOUT 25, HUB_ATTACHED 20.
+- Re-clustering the cleaned graph attached 100 members and auto-merged 4
+  artist pairs on its own.
 
-**Round 2 (same evening): asset-link purge + connection ranking.**
-- **Standing junk-website sweep** (`cluster.purge_junk_website_accounts`,
-  runs before flag_project_accounts every cluster run): website accounts
-  whose host is in `extract._NON_WEBSITE_DOMAINS` or whose path matches
-  `extract._ASSET_EXT` get edges retracted + hidden. Growing the blocklist
-  in extract.py now auto-cleans historical rows on the next pipeline run —
-  hub-crawl-evidenced edges are outside reextract's reach, this is the
-  mechanism that catches them. First run: 707 accounts (sta.sh, old x.gd/
-  pixiv.me rows, tiktok share links).
-- **Migration 0035**: retro-purged 9,442 asset-file website accounts (DA
-  avatar CDNs a.deviantart.net + fcNN, wixmp images, fav.me deviation
-  shortlinks, adsbygoogle scripts) and 15,202 DA→DA same_platform_mention
-  edges from 633 group-roster about pages. `discover_deviantart` now drops
-  DA→DA mentions wholesale when a page mentions >5 distinct deviants
-  (`MAX_MENTIONS_PER_PAGE` — group rosters, not shoutouts; DA snapshots are
-  reextract-excluded so the retro-pass lives in the migration).
-  New blocklist entries: googlesyndication/doubleclick/googleadservices,
-  deviantart.net, wixmp.com, usrfiles/filesusr, fav.me, sta.sh; plus
-  `_ASSET_EXT` (any .js/.png/.gif/… path is a file, not a site).
-- **Connections table is ranked like a human reads it**: name-similarity
-  tiering (`_name_similarity` — normalized handles/names vs member names,
-  1.0 exact / 0.9 containment / difflib; `NAME_MATCH_MIN=0.75`). Tier 0 =
-  ≈name chip (visibly the artist's own account), 1 = unresolved same-person
-  claims, 2 = other related, 3 = credits/mention/website noise — tier 3
-  collapses behind a "show N low-signal connections" toggle when >5.
-- **Review chips show display names** (top-display_rank account name, same
-  rule as the directory) instead of pixiv-id slugs, merge cards included.
-- **Inline decisions everywhere**: artist pages render pending review items
-  for that artist (anomaly ack/dismiss, merges, gates on member accounts)
-  with decide buttons that redirect back via a `next` param on /review
-  decide (validated same-origin-path). No more bouncing to the queue.
+**Review UI/UX (all verified live):**
+- /review: three anchored sections (Merges / Anomalies / Unlikely artists)
+  with sticky bulk bar + per-section select-all + jump counts; merge cards
+  show both artists as pfp chips with display names (directory name rule,
+  not pixiv-id slugs) and ⇄ mutual / → one-way chips per evidence line
+  (pending merges are ~always one-way — reciprocal pairs auto-merge);
+  everything clickable (target=_blank); singleton gates are a card grid
+  with live account context and List-as-artist / Not-an-artist buttons.
+- Artist pages: pending review items decidable inline (`next` redirect on
+  /review decide, validated same-origin path); Connections ranked by name
+  similarity (`_name_similarity`, `NAME_MATCH_MIN=0.75`; ≈name chip; tier-3
+  credits/mention/site noise collapses behind a toggle — state in
+  `data-open`, never by matching label text); `/artist/<id>` follows
+  `merged_into` so husk pages redirect to the keeper.
+- Demoted: pfps, platform/reason/demoted-date columns, readable bio
+  (`td.biocell` min-width), bulk restore with select-all. Removed: pfps +
+  clickable handles; hidden-accounts table lists identity platforms only
+  (cap 500) with the ~10k website artifacts as a count line.
+- **Private X accounts show 🔒** (artist-page stat chip + directory chip
+  lock). `protected` was always in snapshot raw; hydration now writes it to
+  platform_stats and migration 0036 backfilled free — 305 private of
+  10,201.
+- threads + bilibili are display-only platforms (migration 0037; 41+46
+  website rows reclassified; bare bilibili.com video links + throne.me
+  blocklisted).
 
-**Junk link artifacts purged (migration 0034 + extract.py guards)**: malformed
-URL text was minting accounts whose "handle" was a scheme fragment
-(instagram.com/https → handle "https"), a reserved page word (tumblr.com/
-profile), a doubled platform domain (instagram.com as an instagram handle),
-or an ellipsis-truncated handle (dot-permitting charsets swallow "artto…"
-dots that the after-match ellipsis check can't see). `find_platform_links`
-now rejects all four shapes (`_RESERVED_HANDLES`, trailing-dot, exact match
-against `_NON_WEBSITE_DOMAINS`; bluesky exempt from the domain rule — its
-handles ARE domains, and only EXACT domain matches are junk: julia_dreams.co
-is a real instagram handle, yun..art a real tiktok). 43 junk accounts hidden,
-~200 edges retracted (migration handles hub-crawl-evidenced edges reextract
-can't reach), + 6 more edges/4 memberships via a reextract pass.
-
-**Anomaly hub thresholds raised** (user directive): ANOMALY_HUB_FANOUT 12→25,
-ANOMALY_HUB_ATTACHED 10→20 — the old bounds flagged legitimately link-rich
-personal hubs. 111 pending anomaly items that only qualified under the old
-bounds auto-resolved (`decided_by='pipeline:threshold_raise'`). Queue now
-197 pending (20 merges / 103 anomaly flags / 74 singleton gates).
-
-**Review UI overhauled**: three anchored sections (Merges / Anomalies /
-Unlikely artists) with a sticky bar carrying bulk actions + per-section jump
-links and per-section select-all; merge cards show BOTH artists as pfp chips
-(top-display_rank avatar, same rule as directory naming) and every evidence
-line gets a ⇄ mutual / → one-way chip (reverse-edge exists() per evidence
-edge — pending merges are ~always one-way since reciprocal pairs auto-merge);
-evidence handles + attach targets + gate accounts are clickable profile
-links (target=_blank); singleton gates render as a card grid with pfp, live
-follower count, bio, and List-as-artist / Not-an-artist buttons; queue items
-show relative age.
+**Next up (in priority order):**
+1. **Work the review queue** (116 pending — now heavily deduped and
+   ranked) + Demoted page (bulk restore makes triage fast).
+2. **Tumblr enrichment** — still blocked on user registering the free API
+   key (tumblr.com/oauth/apps); 1,568 held accounts.
+3. **Cara exploration** (re-probe for an official API; never circumvent
+   bot protection).
+4. **New-source candidates from link frequency** (scouting-grade, none
+   wired): toyhou.se (195 links), foriio/fori.io (112), curiouscat
+   me/qa/live (259), marshmallow-qa (154), retrospring (122), odaibako
+   (67), beacons.ai (crawlable hub, 20), poipiku (24), suzuri (31).
+5. Recurring skims: DA popular rotation, vgen tier-1/2 re-walks, pixiv tag
+   rounds, bluesky expansion. X spend standing rule: auto-run hydration
+   backlog rings < $10; stop when yield collapses.
 
 ## Previous state (2026-07-23 — x-tag extension shipped, 2.4k-artist bulk import)
 

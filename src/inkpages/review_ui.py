@@ -835,12 +835,29 @@ Solid boxes are accounts we've verified; a dashed box is the account being judge
 <div class="card"><b>Scraped data</b>
   <p class="muted">Twitter only via its official paid API (${{ "%.2f"|format(c.spent/100) }} of
   ${{ "%.0f"|format(c.cap_cents/100) }} budget used, every call ledgered).
-  Instagram, Weibo and Facebook are display-only: handles the artist published are
-  shown, their sites are never fetched.</p></div>
+  Instagram, TikTok, Threads, Weibo, Bilibili and Facebook are display-only:
+  handles the artist published are shown, their sites are never fetched.</p></div>
 <div class="card"><b>Our opinion about AI use</b>
   <p class="muted">The "no AI" badge is only ever the artist's own words, quoted
   with its source. We never classify, and an accepted correction removes the
   badge quietly — accusations are never published.</p></div>
+<div class="card"><b>Link artifacts <span class="livecount">{{ "{:,}".format(c.junk_hidden) }} purged</span></b>
+  <div class="diagram"><span class="node acct2">adsbygoogle.js · avatar.gif · site.comhttp://…</span><span class="verdict no">never an account</span></div>
+  <p class="muted">Page markup is full of URLs nobody published as identity:
+  ad scripts, image CDNs, asset files, reserved paths (vgen.co/uploads),
+  glued double-links. Extraction rejects them and a standing pipeline sweep
+  retracts any that ever slipped in — growing the blocklist auto-cleans
+  history.</p></div>
+<div class="card"><b>Roster dumps</b>
+  <div class="diagram"><span class="node">group about page</span><span class="arrow">→</span><span class="node acct2">30 member links</span><span class="verdict no">dropped wholesale</span></div>
+  <p class="muted">A DeviantArt page mentioning more than 5 other deviants is a
+  group roster / watch list, not personal shoutouts — none of its same-platform
+  mentions become connections.</p></div>
+<div class="card"><b>Collective projects <span class="livecount">{{ "{:,}".format(c.project_flagged) }} flagged</span></b>
+  <div class="diagram"><span class="node acct2">"A Haikyuu fanzine 📚"</span><span class="verdict no">parsed out</span></div>
+  <p class="muted">Zines, big bangs and anthologies publish reciprocal links
+  exactly like a person — their self-description gives them away, and they are
+  excluded from clustering, connections and paid hydration entirely.</p></div>
 </div>
 
 <h2>Humans stay in charge <span class="livecount">{{ c.pending }} decisions waiting</span></h2>
@@ -857,10 +874,13 @@ Solid boxes are accounts we've verified; a dashed box is the account being judge
   suppression hides just that account, an artist-scoped one hides the whole
   artist. Accounts hidden by a verification cull stay hidden through every
   refresh until an admin lifts them.</p></div>
-<div class="card"><b>Self-healing</b>
+<div class="card"><b>Self-healing <span class="livecount">{{ "{:,}".format(c.anomalies_healed) }} flags self-resolved</span></b>
   <p class="muted">All merges trace to stored page snapshots. If a re-parse no
   longer finds the link that justified a join, the join is undone automatically —
-  and restored if the evidence returns.</p></div>
+  and restored if the evidence returns. Review flags heal the same way: every
+  cluster run re-checks pending anomaly items against current data, and a flag
+  whose cause was fixed (edges retracted, thresholds raised, artist merged away)
+  resolves itself instead of waiting for a human.</p></div>
 </div>
 {% endblock %}""",
 
@@ -1663,6 +1683,14 @@ def rules():
               (select count(*) from review_items where status = 'pending') as pending,
               (select count(distinct artist_id) from suppressions
                where lifted_at is null) as suppressed,
+              (select count(*) from accounts a
+               join platforms p on p.id = a.platform_id
+               where a.status = 'hidden' and p.slug = 'website') as junk_hidden,
+              (select count(*) from review_items
+               where decided_by in ('pipeline:anomaly_cleared',
+                                    'pipeline:merged_away',
+                                    'pipeline:threshold_raise')) as anomalies_healed,
+              (select count(*) from accounts where project) as project_flagged,
               (select coalesce(sum(est_cost_cents), 0) from api_usage
                where service = 'x_api') as spent""")[0]
         c["cap_cents"] = spend_cap_cents()

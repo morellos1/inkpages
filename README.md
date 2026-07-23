@@ -25,9 +25,14 @@ provenance.
 
 - [migrations/](migrations/) — plain-SQL schema (Postgres 16)
 - [src/inkpages/](src/inkpages/) — pipeline workers (discovery: Bluesky, Skeb,
-  Pixiv, Twitter, Graphtreon/Patreon; crawling, clustering, review UI)
+  Pixiv, Twitter, Graphtreon/Patreon, DeviantArt, VGen, ArtStation, Misskey;
+  crawling, clustering, review UI)
+- [xtag/](xtag/) — Chrome extension for one-click artist tagging on X
+  (hover cards, profile headers, bulk-select on follower lists)
 - [docs/schema.md](docs/schema.md) — ERD + design-tradeoff walkthrough
 - [docs/pipeline.md](docs/pipeline.md) — the pipeline plan and budget
+- [docs/source-scouting.md](docs/source-scouting.md) — probed-source notes
+  (go/no-go calls with reasons)
 - [scripts/migrate.py](scripts/migrate.py) — minimal migration runner
 - [scripts/smoke.sql](scripts/smoke.sql) — fixture smoke test (self-rolls-back)
 
@@ -118,6 +123,33 @@ patreon.com page (public page HTML only — Patreon's `/api/` is disallowed by
 robots.txt and never touched) and extracts their registered social links and
 about text into ordinary provenance-carrying edges.
 
+### DeviantArt, VGen, ArtStation, Misskey (free)
+
+```sh
+uv run python -m inkpages.discover_deviantart --top 500 --hydrate-known
+uv run python -m inkpages.discover_vgen                  # tier-1/2 category walk
+uv run python -m inkpages.discover_artstation --max-new 300
+uv run python -m inkpages.discover_misskey --hydrate-known
+```
+
+DeviantArt walks the official RSS Popular feeds and hydrates About pages
+(group-roster pages mentioning >5 deviants are dropped wholesale — feature
+dumps, not identity). VGen walks the marketplace category listings
+(robots Content-Signal permits) and reads registered socials + open/closed
+commission state from each profile. ArtStation takes the openly served
+community trending feed only (profiles are bot-walled and never
+circumvented). Misskey hydrates held accounts per-instance via the open
+`users/show` API.
+
+### x-tag extension (manual tagging while browsing X)
+
+`cd xtag && npm install && npm run build`, then load `xtag/extension/`
+unpacked. One-click tag buttons on hover cards, profile headers, tweets and
+follower/following lists (bulk select-all auto-scrolls the virtualized
+list). Tagging is free (handle-only roster rows); hydration is an explicit
+budget-shown button press. Server side lives in `review_ui` under
+`/api/x/*` with an `/xtag` dashboard.
+
 ### Link crawling & Twitter
 
 ```sh
@@ -139,12 +171,21 @@ uv run python -m inkpages.pipeline   # hydrate-known passes, crawl_links, check_
 
 ## Status
 
-Running end to end: discovery on Bluesky, Skeb, Pixiv (rankings + tag
-search), Twitter (paid, budget-guarded), and Graphtreon/Patreon;
-shortener/hub crawling (Linktree, Carrd, potofu, lit.link, profcard, twpf,
-tsunagu); extraction (no-AI + NSFW signals, alt-vs-related mentions,
-commissions, contact emails); clustering with guards + review queue; region
-and language classification; and the local review UI with directory browse,
-faceted filters, and plain-language /sources + /rules explainer pages.
-Next: Bluesky list/starter-pack expansion, stratified ranking runs, the
-public site.
+~8,600 listed artists. Running end to end: discovery on Bluesky, Skeb,
+Pixiv (rankings + premium tag search), Twitter (paid, budget-guarded, plus
+the x-tag manual-tagging extension), Graphtreon/Patreon, DeviantArt, VGen,
+ArtStation and Misskey; shortener/hub crawling (Linktree, Carrd, potofu —
+with og-tag profile capture — lit.link, profcard, twpf, tsunagu);
+extraction (no-AI + NSFW signals, alt-vs-related mentions, commissions,
+contact emails, private-account flags) with standing hygiene sweeps (link
+artifacts, reserved-path handles, glued URLs, collective-project accounts);
+clustering with guards, self-healing review flags and a review queue;
+region and language classification; and the local review UI with directory
+browse, faceted filters, name-similarity-ranked connections, inline review
+decisions, and plain-language /sources + /rules explainer pages.
+Display-only platforms (shown, never fetched): Instagram, TikTok, Threads,
+Weibo, Bilibili, Facebook. Probed and declined: Cara/xfolio/ArtStation
+profiles (bot walls we won't circumvent), Instagram/mihuashi (no open
+surface) — see docs/source-scouting.md.
+Next: Tumblr enrichment (needs a free API key), Cara re-probe for an
+official API, recurring discovery skims, the public site.
