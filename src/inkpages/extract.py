@@ -433,7 +433,23 @@ _NON_WEBSITE_DOMAINS = _PLATFORM_DOMAINS | set(SHORTENER_DOMAINS) | {
     "google-analytics.com", "jsdelivr.net", "unpkg.com", "cloudflare.com",
     "cdnjs.com", "typekit.net", "fontawesome.com", "bootstrapcdn.com",
     "gravatar.com", "wp.com", "wixstatic.com", "squarespace-cdn.com",
+    # Ad networks (DA about-page markup carries adsbygoogle script tags).
+    "googlesyndication.com", "doubleclick.net", "googleadservices.com",
+    # Image/file CDNs behind DeviantArt (wix-owned) and Wix sites — avatar
+    # and deviation images in about-page markup, never the artist's site.
+    "deviantart.net", "wixmp.com", "usrfiles.com", "filesusr.com",
+    # fav.me / sta.sh = DA's per-DEVIATION shortlink and stash-content
+    # permalinks (artworks, not profiles) — content links, worthless as
+    # identity.
+    "fav.me", "sta.sh",
 }
+
+# A URL whose path ends in a static-asset extension is a file, not anyone's
+# home page — images, scripts, styles, media embedded in page markup.
+_ASSET_EXT = re.compile(
+    r"\.(?:js|mjs|css|json|xml|png|jpe?g|gif|webp|avif|svg|ico|bmp"
+    r"|woff2?|ttf|otf|eot|mp[34]|webm|mov|wav|ogg|pdf|zip|rar|7z)$",
+    re.IGNORECASE)
 
 
 def find_website_links(text: str | None) -> list[PlatformLink]:
@@ -456,6 +472,8 @@ def find_website_links(text: str | None) -> list[PlatformLink]:
         ):
             continue
         path = re.sub(r"^(?:https?://)?(?:www\.)?", "", url).split("?")[0].split("#")[0]
+        if _ASSET_EXT.search(path.rstrip("/")):
+            continue
         handle = path.rstrip("/").lower()[:80]
         if not url.startswith("http"):
             url = "https://" + url

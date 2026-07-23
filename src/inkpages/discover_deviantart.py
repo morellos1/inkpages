@@ -139,6 +139,11 @@ FEED_QUERIES = ("boost%3Apopular",
                 "portrait+boost%3Apopular",
                 "original+character+boost%3Apopular")
 
+# An about page mentioning more distinct deviants than this is a group
+# roster / watch-list dump, not personal shoutouts — its DA→DA mentions
+# are dropped wholesale. Personal pages crediting a few friends stay.
+MAX_MENTIONS_PER_PAGE = 5
+
 
 def harvest(conn, client, platforms, stats, top: int) -> None:
     """Walk the Popular feeds until `top` distinct authors are seen."""
@@ -377,8 +382,19 @@ def hydrate_known(conn, client, platforms, limit, stats) -> None:
             for link in find_website_links(url):
                 emit(link, "profile_field")
         # Links written into the about text itself (markup JSON keeps hrefs
-        # as plain text, so the ASCII patterns match in place).
-        for link in find_platform_links(scan_text) + find_website_links(scan_text):
+        # as plain text, so the ASCII patterns match in place). Group-runner
+        # about pages list dozens of members/watchers — when a page mentions
+        # many other deviants it's a roster dump, not a set of personal
+        # shoutouts, so the DA→DA mentions are dropped wholesale (one artist
+        # page once grew 24 mention connections this way).
+        text_links = find_platform_links(scan_text) + find_website_links(scan_text)
+        da_mentions = {l.handle.lower() for l in text_links
+                       if l.platform == "deviantart" and l.handle
+                       and l.handle.lower() != username.lower()}
+        mention_dump = len(da_mentions) > MAX_MENTIONS_PER_PAGE
+        for link in text_links:
+            if mention_dump and link.platform == "deviantart":
+                continue
             emit(link, "bio_link")
 
         if n % 50 == 0:

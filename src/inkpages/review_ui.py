@@ -416,6 +416,39 @@ document.querySelectorAll('.bio').forEach(function (box) {
 {% endif %}
 </div>
 
+{% if pending_items %}
+<div class="card" style="border-left:4px solid #fca311">
+  <b>Pending review for this artist</b>
+  {% for item in pending_items %}
+  <div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;margin:.5rem 0">
+    {% if item.kind == 'other' %}
+      {% for k, v in (item.payload.reasons or {}).items() %}<span class="chip edge-dir oneway">{{ k }}: {{ v }}</span>{% endfor %}
+      <span class="muted">#{{ item.id }} · anomaly flag — acknowledging/dismissing changes no data</span>
+      <form class="inline" method="post" action="{{ url_for('decide', item_id=item.id, decision='approve') }}">{{ csrf() }}
+        <input type="hidden" name="next" value="{{ request.path }}"><button class="ok">Acknowledge</button></form>
+      <form class="inline" method="post" action="{{ url_for('decide', item_id=item.id, decision='reject') }}">{{ csrf() }}
+        <input type="hidden" name="next" value="{{ request.path }}"><button class="no">Dismiss</button></form>
+    {% elif item.kind == 'cluster_merge' %}
+      <span class="chip badge-waitlist">merge decision</span>
+      <span class="muted">#{{ item.id }} · artists {{ item.payload.artist_ids }} — approve merges them</span>
+      <form class="inline" method="post" action="{{ url_for('decide', item_id=item.id, decision='approve') }}"
+            data-confirm="Merge these artists?">{{ csrf() }}
+        <input type="hidden" name="next" value="{{ request.path }}"><button class="ok">Merge</button></form>
+      <form class="inline" method="post" action="{{ url_for('decide', item_id=item.id, decision='reject') }}">{{ csrf() }}
+        <input type="hidden" name="next" value="{{ request.path }}"><button class="no">Reject</button></form>
+    {% elif item.kind == 'singleton_gate' %}
+      <span class="chip badge-waitlist">unlikely artist</span>
+      <span class="muted">#{{ item.id }} · {{ item.payload.platform }}:{{ item.payload.handle }}</span>
+      <form class="inline" method="post" action="{{ url_for('decide', item_id=item.id, decision='approve') }}">{{ csrf() }}
+        <input type="hidden" name="next" value="{{ request.path }}"><button class="ok">List as artist</button></form>
+      <form class="inline" method="post" action="{{ url_for('decide', item_id=item.id, decision='reject') }}">{{ csrf() }}
+        <input type="hidden" name="next" value="{{ request.path }}"><button class="no">Not an artist</button></form>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
 <h2>Accounts</h2>
 <table><tr><th><input type="checkbox" data-checkall="bulkacc" title="select all"></th><th>platform</th><th>handle</th><th>confidence</th><th>nsfw</th><th>followers</th><th>last post</th><th>comms</th><th>contact</th><th>bio (latest snapshot)</th><th></th></tr>
 {% for acc in accounts %}<tr>
@@ -449,15 +482,17 @@ document.querySelectorAll('.bio').forEach(function (box) {
 </form>
 
 <h2>Connections</h2>
-<p class="muted">Related links never merge on their own. An <b>unresolved same-person
-claim</b> means the evidence says same person but clustering could not act alone
-(the account belongs to another artist, or a guard held it back) — confirm to
-attach/merge.</p>
+<p class="muted">Ranked most-likely-own-account first: <span class="chip badge-open">≈ name</span>
+rows visibly share a name with this artist's accounts; unresolved same-person
+claims next; credits/mention/asset noise last. Related links never merge on
+their own — confirm a same-person claim to attach/merge.</p>
 <table><tr><th><input type="checkbox" data-checkall="bulkconn" title="select all"></th><th>direction</th><th>account</th><th>belongs to</th><th>followers</th><th>claim</th><th>evidence</th><th></th></tr>
-{% for c in connections %}<tr>
+{% set lowsig_collapse = low_signal_count > 5 %}
+{% for c in connections %}<tr{% if c.tier == 3 and lowsig_collapse %} class="lowsig" hidden{% endif %}>
   <td><input type="checkbox" form="bulkconn" name="ids" value="{{ c.other_id }}"></td>
   <td class="nowrap">{{ c.direction }}</td>
-  <td><span class="chip">{{ c.other_platform }}: {{ m.acct_link(c.other_platform, c.other_handle, c.other_profile_url, c.other_display_name) }}</span></td>
+  <td><span class="chip">{{ c.other_platform }}: {{ m.acct_link(c.other_platform, c.other_handle, c.other_profile_url, c.other_display_name) }}</span>
+      {% if c.name_match %}<span class="chip badge-open" title="handle/name matches this artist's accounts">≈ name</span>{% endif %}</td>
   <td class="trunc" title="{{ c.other_artist_slug or '' }}">{% if c.other_artist_id %}<a href="{{ url_for('artist', artist_id=c.other_artist_id) }}">{{ c.other_artist_slug }}</a>{% else %}<span class="muted">unattached</span>{% endif %}</td>
   <td class="nowrap">{{ "{:,}".format(c.other_followers) if c.other_followers else "—" }}</td>
   <td>{% if c.claim == 'same_person' %}<span class="chip badge-waitlist">same-person claim — unresolved</span>
@@ -470,6 +505,12 @@ attach/merge.</p>
        data-confirm="Remove {{ c.other_platform }}:{{ c.other_handle }} from this artist's connections? It has no relation to the artist and will stay gone even if the link is re-extracted.">{{ csrf() }}
        <button class="no">remove</button></form></td>
 </tr>{% else %}<tr><td colspan="8" class="muted">none</td></tr>{% endfor %}</table>
+{% if lowsig_collapse %}
+<button type="button" class="linkish" style="margin:.4rem 0"
+        onclick="document.querySelectorAll('tr.lowsig').forEach(r=>r.hidden=!r.hidden);
+                 this.textContent = this.textContent.startsWith('show') ? 'hide low-signal connections' : 'show {{ low_signal_count }} low-signal connections (credits, mentions, sites)';">
+  show {{ low_signal_count }} low-signal connections (credits, mentions, sites)</button>
+{% endif %}
 <form id="bulkconn" class="inline" method="post" action="{{ url_for('bulk_connections', artist_id=artist.id) }}">{{ csrf() }}
   <button class="ok" name="action" value="confirm"
           data-confirm="Confirm all selected connections as the same person? Floating accounts attach; accounts of other artists merge those artists in.">Attach/merge selected</button>
@@ -802,7 +843,8 @@ Solid boxes are accounts we've verified; a dashed box is the account being judge
 {% macro artist_chip(a, artist_id=None) %}
   <span class="artist-chip">
     {% if a and a.avatar_url %}<img class="pfp" src="{{ img_src(a.avatar_url) }}" loading="lazy">{% else %}<span class="pfp" style="display:inline-block"></span>{% endif %}
-    <span class="who"><a href="{{ url_for('artist', artist_id=artist_id or a.id) }}" target="_blank"><b>{{ a.public_slug if a else '?' }}</b></a><br>
+    <span class="who"><a href="{{ url_for('artist', artist_id=artist_id or a.id) }}" target="_blank"><b>{{ (a.display_name or a.public_slug) if a else '?' }}</b></a>
+    {% if a and a.display_name and a.display_name != a.public_slug %}<span class="muted">/{{ a.public_slug }}</span>{% endif %}<br>
     <span class="muted">{{ "{:,}".format(a.followers) + " followers" if a and a.followers is not none else "followers unknown" }}</span></span>
   </span>
 {% endmacro %}
@@ -1576,6 +1618,48 @@ def restore(artist_id):
     return redirect(url_for("demoted"))
 
 
+def _norm_name(s: str | None) -> str:
+    """Normalize a handle/name for similarity: lowercase alphanumerics only,
+    platform suffixes stripped (ap1os.bsky.social ~ ap1os, fy_fp7 ~ fyfp7)."""
+    if not s:
+        return ""
+    s = re.sub(r"\.(?:bsky\.social|carrd\.co|tumblr\.com|fanbox\.cc|booth\.pm)$",
+               "", s.lower())
+    return re.sub(r"[^a-z0-9]", "", s)
+
+
+def _name_similarity(candidates: list[str], member_names: set[str]) -> float:
+    """Best similarity between any candidate name and any member name.
+    1.0 exact, 0.9 containment (≥4 chars), else difflib ratio."""
+    from difflib import SequenceMatcher
+
+    best = 0.0
+    for cand in {_norm_name(c) for c in candidates if c}:
+        if not cand:
+            continue
+        for member in member_names:
+            if not member:
+                continue
+            if cand == member:
+                return 1.0
+            if len(cand) >= 4 and len(member) >= 4 and (
+                    cand in member or member in cand):
+                best = max(best, 0.9)
+            else:
+                best = max(best, SequenceMatcher(None, cand, member).ratio())
+    return best
+
+
+# Connection ordering: most-likely-own-account first. Score ≥ this = the
+# names visibly match ("mikan_art" linking "mikanart.tumblr.com"), which is
+# how a human instantly separates the artist's own accounts from credits.
+NAME_MATCH_MIN = 0.75
+
+# Hints that are almost always credits/features/infra rather than the
+# artist's own accounts — they sink to the bottom unless the name matches.
+_LOW_SIGNAL_HINTS = {"same_platform_mention", "hub_credits", "website"}
+
+
 @app.route("/artist/<int:artist_id>")
 def artist(artist_id):
     with db.connect() as conn:
@@ -1644,6 +1728,46 @@ def artist(artist_id):
                    (artist_id,))
         suppressed_rows = q(conn, """select * from suppressions
                                      where artist_id = %s and lifted_at is null limit 1""", (artist_id,))
+
+        # Rank connections the way a human reads them: rows whose handle or
+        # name matches the artist's own names first (90% of real own-account
+        # links are visually obvious), then unresolved same-person claims,
+        # then ordinary related links; credits/mention/website noise last.
+        member_names = {_norm_name(a["handle"]) for a in accounts} \
+            | {_norm_name(a["display_name"]) for a in accounts}
+        member_names.discard("")
+        for c in connections:
+            c["name_score"] = _name_similarity(
+                [c["other_handle"], c["other_display_name"]], member_names)
+            c["name_match"] = c["name_score"] >= NAME_MATCH_MIN
+            if c["name_match"]:
+                tier = 0
+            elif c["claim"] == "same_person":
+                tier = 1
+            elif (c["relation_hint"] or "") not in _LOW_SIGNAL_HINTS:
+                tier = 2
+            else:
+                tier = 3
+            c["tier"] = tier
+        connections.sort(key=lambda c: (
+            c["tier"], -c["name_score"], -(c["other_followers"] or 0)))
+        low_signal_count = sum(1 for c in connections if c["tier"] == 3)
+
+        # Pending review items about THIS artist — decidable in place, so
+        # inspecting an anomaly/merge never requires bouncing back to the
+        # queue. Gates key on member accounts (rare but possible after a
+        # later attach).
+        pending_items = q(conn, """
+            select * from review_items
+            where status = 'pending'
+              and ((kind = 'other' and (payload->>'artist_id')::bigint = %(id)s)
+                or (kind = 'cluster_merge'
+                    and (payload->>'artist_ids')::jsonb @> to_jsonb(%(id)s::bigint))
+                or (kind = 'singleton_gate'
+                    and (payload->>'account_id')::bigint in
+                        (select account_id from artist_accounts
+                         where artist_id = %(id)s and removed_at is null)))
+            order by created_at""", {"id": artist_id})
         # Title matches the directory's name rule (migration 0024): the
         # top-display_rank visible account wins (twitter/bsky over pixiv),
         # regardless of membership confidence.
@@ -1653,7 +1777,8 @@ def artist(artist_id):
             artist["display_name"])
         return render_template(
             "artist.html", artist=artist, accounts=accounts, signals=signals,
-            connections=connections, events=events,
+            connections=connections, low_signal_count=low_signal_count,
+            pending_items=pending_items, events=events,
             avatar=next((a["avatar_url"] for a in accounts
                          if a.get("avatar_url")), None),
             suppressed=suppressed_rows[0] if suppressed_rows else None,
@@ -1912,6 +2037,14 @@ def _enrich_all(conn, items):
                        | anomaly_artist_ids)
     merge_artist = {r["id"]: r for r in q(conn, """
         select ar.id, ar.public_slug,
+               (select coalesce(nullif(a.display_name, ''), a.handle::text)
+                from artist_accounts aa
+                join accounts a on a.id = aa.account_id
+                join platforms p on p.id = a.platform_id
+                where aa.artist_id = ar.id and aa.removed_at is null
+                  and a.status in ('active', 'unknown')
+                order by p.display_rank, a.followers_count desc nulls last
+                limit 1) as display_name,
                (select max(a.followers_count) from artist_accounts aa
                 join accounts a on a.id = aa.account_id
                 where aa.artist_id = ar.id and aa.removed_at is null) as followers,
@@ -2103,7 +2236,12 @@ def decide(item_id, decision):
     with db.connect() as conn:
         _decide_one(conn, item_id, decision)
         conn.commit()
-    return redirect(url_for("review"))
+    # Artist pages embed decide forms with next=<their own path> so a
+    # decision made mid-inspection lands back on the page being inspected.
+    nxt = request.form.get("next", "")
+    if not (nxt.startswith("/") and not nxt.startswith("//")):
+        nxt = url_for("review")
+    return redirect(nxt)
 
 
 @app.route("/review/bulk", methods=["POST"])

@@ -14,6 +14,38 @@ rationale: `docs/schema.md` and `docs/pipeline.md`. Untapped-source scouting
 
 ## Current state (2026-07-23 eve — junk-link cleanup + review-UI overhaul)
 
+**Round 2 (same evening): asset-link purge + connection ranking.**
+- **Standing junk-website sweep** (`cluster.purge_junk_website_accounts`,
+  runs before flag_project_accounts every cluster run): website accounts
+  whose host is in `extract._NON_WEBSITE_DOMAINS` or whose path matches
+  `extract._ASSET_EXT` get edges retracted + hidden. Growing the blocklist
+  in extract.py now auto-cleans historical rows on the next pipeline run —
+  hub-crawl-evidenced edges are outside reextract's reach, this is the
+  mechanism that catches them. First run: 707 accounts (sta.sh, old x.gd/
+  pixiv.me rows, tiktok share links).
+- **Migration 0035**: retro-purged 9,442 asset-file website accounts (DA
+  avatar CDNs a.deviantart.net + fcNN, wixmp images, fav.me deviation
+  shortlinks, adsbygoogle scripts) and 15,202 DA→DA same_platform_mention
+  edges from 633 group-roster about pages. `discover_deviantart` now drops
+  DA→DA mentions wholesale when a page mentions >5 distinct deviants
+  (`MAX_MENTIONS_PER_PAGE` — group rosters, not shoutouts; DA snapshots are
+  reextract-excluded so the retro-pass lives in the migration).
+  New blocklist entries: googlesyndication/doubleclick/googleadservices,
+  deviantart.net, wixmp.com, usrfiles/filesusr, fav.me, sta.sh; plus
+  `_ASSET_EXT` (any .js/.png/.gif/… path is a file, not a site).
+- **Connections table is ranked like a human reads it**: name-similarity
+  tiering (`_name_similarity` — normalized handles/names vs member names,
+  1.0 exact / 0.9 containment / difflib; `NAME_MATCH_MIN=0.75`). Tier 0 =
+  ≈name chip (visibly the artist's own account), 1 = unresolved same-person
+  claims, 2 = other related, 3 = credits/mention/website noise — tier 3
+  collapses behind a "show N low-signal connections" toggle when >5.
+- **Review chips show display names** (top-display_rank account name, same
+  rule as the directory) instead of pixiv-id slugs, merge cards included.
+- **Inline decisions everywhere**: artist pages render pending review items
+  for that artist (anomaly ack/dismiss, merges, gates on member accounts)
+  with decide buttons that redirect back via a `next` param on /review
+  decide (validated same-origin-path). No more bouncing to the queue.
+
 **Junk link artifacts purged (migration 0034 + extract.py guards)**: malformed
 URL text was minting accounts whose "handle" was a scheme fragment
 (instagram.com/https → handle "https"), a reserved page word (tumblr.com/

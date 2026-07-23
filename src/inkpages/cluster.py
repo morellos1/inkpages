@@ -225,6 +225,52 @@ def add_review_item(conn, kind: str, payload: dict, stats: Counter) -> None:
     stats[f"review:{kind}"] += 1
 
 
+def purge_junk_website_accounts(conn, stats: Counter) -> None:
+    """Standing sweep: website accounts whose host is on the extraction
+    blocklist (_NON_WEBSITE_DOMAINS — ad networks, CDNs, content
+    shortlinks) or whose path is a static asset file (_ASSET_EXT) are
+    artifacts of page markup, never anyone's site. The extraction guards
+    stop new ones, but edges evidenced by hub crawls are out of reextract's
+    reach — so growing the blocklist in extract.py auto-cleans historical
+    rows here on the next pipeline run. Retract their edges, close any
+    memberships, hide the accounts. Idempotent."""
+    from .extract import _ASSET_EXT, _NON_WEBSITE_DOMAINS
+
+    with conn.cursor() as cur:
+        cur.execute(
+            """select a.id from accounts a
+               join platforms p on p.id = a.platform_id
+               where p.slug = 'website' and a.status <> 'hidden'
+                 and (split_part(a.handle::text, '/', 1) ~* ('(^|\\.)('
+                        || array_to_string(%(domains)s::text[], '|') || ')$')
+                      or a.handle::text ~* %(asset_re)s)""",
+            {"domains": [re.escape(d) for d in sorted(_NON_WEBSITE_DOMAINS)],
+             "asset_re": _ASSET_EXT.pattern})
+        junk = [row[0] for row in cur.fetchall()]
+        if not junk:
+            return
+        cur.execute(
+            """update identity_edges set status = 'retracted'
+               where status = 'present'
+                 and (source_account_id = any(%(ids)s)
+                      or target_account_id = any(%(ids)s))""", {"ids": junk})
+        stats["junk_site_edges_retracted"] += cur.rowcount
+        cur.execute(
+            """insert into artist_events (artist_id, event, actor, details)
+               select aa.artist_id, 'account_removed', 'pipeline',
+                      jsonb_build_object('account_id', aa.account_id,
+                                         'reason', 'junk_website_purge')
+               from artist_accounts aa
+               where aa.removed_at is null and aa.account_id = any(%s)""",
+            (junk,))
+        cur.execute(
+            """update artist_accounts set removed_at = now()
+               where removed_at is null and account_id = any(%s)""", (junk,))
+        cur.execute("update accounts set status = 'hidden' where id = any(%s)",
+                    (junk,))
+        stats["junk_site_accounts_hidden"] += len(junk)
+
+
 def flag_project_accounts(conn, stats: Counter) -> None:
     """Standing sweep: any account whose handle ends in zine or whose
     name/bio reads as a collective project (zine, big bang, anthology, fic
@@ -369,6 +415,7 @@ def main() -> None:
                 )
                 stats["healed_memberships"] += 1
 
+        purge_junk_website_accounts(conn, stats)
         flag_project_accounts(conn, stats)
 
         accounts, edges, membership = load_state(conn)
