@@ -303,7 +303,8 @@ def load_state(conn):
     with conn.cursor(row_factory=dict_row) as cur:
         cur.execute(
             """select a.id, a.handle::text, a.display_name, a.followers_count,
-                      a.discovered_via, a.status, a.project, p.slug as platform_slug,
+                      a.discovered_via, a.status, a.project, a.last_hydrated,
+                      p.slug as platform_slug,
                       p.kind as platform_kind, ls.bio_text as latest_bio
                from accounts a
                join platforms p on p.id = a.platform_id
@@ -549,6 +550,11 @@ def main() -> None:
                     and account["discovered_via"] in policy.ROSTER_SOURCES
                     and account["platform_kind"] != "link_hub"
                     and account["status"] in ("active", "unknown")
+                    # x-tag queue: never mint a skeleton artist for a tag the
+                    # paid flush hasn't hydrated yet — blank directory rows,
+                    # and the extension's amber "queued" must stay queued.
+                    and not (account["discovered_via"] == "manual_tag"
+                             and account["last_hydrated"] is None)
                     and not db.is_suppressed(conn, account["id"])):
                 if not has_artist_evidence(account):
                     # Suspected non-artist: a human decides, not a silent skip.

@@ -5,7 +5,11 @@ import type { XtagInfo } from "../core/x";
 
 export const XTAG_UPDATED_EVENT = "inkpages:xtag-updated";
 
-const cache = new Map<string, XtagInfo>();
+// Page-side cache with a TTL: server-side state changes on their own (a
+// pipeline pass hydrates/lists accounts), so entries must expire or a long
+// scrolling session shows stale badges until a full reload.
+const CACHE_TTL_MS = 120_000;
+const cache = new Map<string, { info: XtagInfo; ts: number }>();
 let pending: Map<string, Array<(info: XtagInfo) => void>> | null = null;
 
 function emitUpdated(): void {
@@ -18,14 +22,20 @@ async function send(message: Record<string, unknown>): Promise<any> {
   return response;
 }
 
+function cachePut(handle: string, info: XtagInfo): void {
+  cache.set(handle, { info, ts: Date.now() });
+}
+
 export function cachedState(handle: string): XtagInfo | undefined {
-  return cache.get(handle);
+  const hit = cache.get(handle);
+  if (!hit || Date.now() - hit.ts > CACHE_TTL_MS) return undefined;
+  return hit.info;
 }
 
 // Micro-batched: every caller in the same tick shares one XTAG_STATUS round
 // trip (a timeline scan asks for dozens of handles one container at a time).
 export function getState(handle: string): Promise<XtagInfo> {
-  const hit = cache.get(handle);
+  const hit = cachedState(handle);
   if (hit) return Promise.resolve(hit);
   return new Promise((resolve) => {
     if (!pending) {
@@ -37,13 +47,13 @@ export function getState(handle: string): Promise<XtagInfo> {
         try {
           const { accounts } = await send({ type: "XTAG_STATUS", handles });
           for (const [h, info] of Object.entries(accounts as Record<string, XtagInfo>)) {
-            cache.set(h, info);
+            cachePut(h, info);
           }
         } catch (error) {
           console.warn("[xtag] status lookup failed:", error);
         }
         for (const [h, resolvers] of batch) {
-          const info = cache.get(h) ?? { state: "untracked" as const };
+          const info = cachedState(h) ?? { state: "untracked" as const };
           resolvers.forEach((fn) => fn(info));
         }
       }, 80);
@@ -66,7 +76,7 @@ async function write(message: Record<string, unknown>): Promise<WriteResult> {
   const response = await chrome.runtime.sendMessage(message);
   const accounts = (response?.accounts ?? {}) as Record<string, XtagInfo>;
   for (const [h, info] of Object.entries(accounts)) {
-    cache.set(h, info);
+    cachePut(h, info);
   }
   if (Object.keys(accounts).length > 0) emitUpdated();
   return { accounts, error: response?.ok ? undefined : (response?.error ?? "request failed") };

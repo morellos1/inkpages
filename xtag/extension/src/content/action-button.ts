@@ -20,6 +20,12 @@ function faceFor(info: XtagInfo): ButtonFace {
         title: `In the inkpages directory${info.slug ? ` as /${info.slug}` : ""} — click to remove`,
         className: "xtag-btn-listed",
       };
+    case "tagged":
+      return {
+        label: "inked ✓",
+        title: `Tagged and hydrated (${info.detail ?? "lists on the next cluster run"}) — click to remove`,
+        className: "xtag-btn-listed",
+      };
     case "queued":
       return {
         label: "queued ✓",
@@ -87,7 +93,7 @@ export function createActionButton(handle: string): HTMLButtonElement {
           return;
         }
         result = await untagHandles([handle]);
-      } else if (current.state === "queued") {
+      } else if (current.state === "queued" || current.state === "tagged") {
         result = await untagHandles([handle]);
       } else {
         result = await tagHandles([handle]);

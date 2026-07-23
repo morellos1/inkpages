@@ -1998,7 +1998,7 @@ def bulk_decide():
 # ---------------------------------------------------------------------------
 
 _X_HANDLE_RE = re.compile(r"^[a-z0-9_]{1,15}$")
-_STATE_RANK = {"listed": 4, "queued": 3, "tracked": 2, "removed": 1}
+_STATE_RANK = {"listed": 5, "tagged": 4, "queued": 3, "tracked": 2, "removed": 1}
 
 
 # Hard sanity bound only — a bulk select-all over a big following list is a
@@ -2046,14 +2046,21 @@ def _x_states(conn, handles: list[str]) -> dict[str, dict]:
             state, detail = "removed", "suppressed"
         elif r["status"] == "hidden":
             state, detail = "removed", "hidden (culled)"
-        elif r["listed"]:
-            state, detail = "listed", None
-        elif r["artist_id"]:
-            state, detail = "tracked", f"artist {r['artist_status']}"
         elif r["status"] == "deleted":
             state, detail = "removed", "deleted on X"
         elif r["discovered_via"] == "manual_tag" and not r["hydrated"]:
+            # Queued means queued until the paid flush hydrates it — even if
+            # a cluster pass has already attached it somewhere. The extension
+            # shows amber here; green is reserved for hydrated states.
             state, detail = "queued", None
+        elif r["listed"]:
+            state, detail = "listed", None
+        elif r["discovered_via"] == "manual_tag":
+            # Hydrated tag awaiting its cluster pass (or held from listing).
+            state, detail = "tagged", (f"artist {r['artist_status']}"
+                                       if r["artist_id"] else "awaiting cluster run")
+        elif r["artist_id"]:
+            state, detail = "tracked", f"artist {r['artist_status']}"
         else:
             state, detail = "tracked", ("project account" if r["project"]
                                         else r["discovered_via"])
@@ -2087,7 +2094,7 @@ def api_x_tag():
         with conn.cursor() as cur:
             for h in handles:
                 info = states[h]
-                if info["state"] in ("listed", "queued"):
+                if info["state"] in ("listed", "queued", "tagged"):
                     done[h] = info  # already in — idempotent
                     continue
                 if info["state"] == "removed" and info["detail"] == "suppressed":
@@ -2143,7 +2150,7 @@ def _untag_handles(conn, handles: list[str]) -> dict[str, dict]:
                            values (%s, 'suppressed', 'admin:x-tag', %s)""",
                         (info["artist_id"],
                          json.dumps({"reason": "x-tag removal", "handle": h})))
-                elif info["state"] in ("queued", "tracked"):
+                elif info["state"] in ("queued", "tracked", "tagged"):
                     # A tag-only row with no history vanishes outright;
                     # anything with snapshots/edges/memberships hides instead
                     # (data kept, directory-invisible).

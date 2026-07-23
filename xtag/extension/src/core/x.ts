@@ -2,7 +2,12 @@
 // (wongtp/better-x, same author) — the handle-parsing rules there survived a
 // lot of real-world X markup churn, keep them in sync when X breaks things.
 
-export type XtagState = "untracked" | "queued" | "tracked" | "listed" | "removed";
+// queued  = tagged, awaiting paid hydration (amber — stays amber until the
+//           flush actually fetches the profile, even if a cluster pass has
+//           already attached the account somewhere)
+// tagged  = hydrated, awaiting/held from its cluster pass (green)
+// listed  = member of a visible directory artist (green)
+export type XtagState = "untracked" | "queued" | "tagged" | "tracked" | "listed" | "removed";
 
 export interface XtagInfo {
   state: XtagState;

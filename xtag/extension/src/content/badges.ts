@@ -11,12 +11,14 @@ const MAX_PENDING_ROOTS = 64;
 
 const BADGE_TEXT: Partial<Record<XtagState, string>> = {
   listed: "INK",
+  tagged: "INK",
   queued: "INK…",
   removed: "✕",
 };
 
 const BADGE_TITLE: Partial<Record<XtagState, string>> = {
   listed: "In the inkpages directory",
+  tagged: "Hydrated — lists on the next cluster run",
   queued: "Tagged for inkpages — awaiting hydration",
   removed: "Removed from inkpages",
 };
