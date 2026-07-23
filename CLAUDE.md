@@ -533,9 +533,12 @@ normal guards. See `discover_skeb.py` `FIELD_VALUE_BLOCKLIST`.
 - Commit messages end with the Claude co-author trailer. Commit after each
   coherent feature; never commit `.env` (gitignored, holds X API creds +
   `PIXIV_SESSION` — **both were pasted in chat; user should rotate**).
-- Paid workers check `X_SPEND_CAP_CENTS` (default 10000) against `api_usage`
-  before any call and ledger every request. **Never make a paid X API call
-  without explicit user approval of the spend.**
+- Paid workers check `X_SPEND_CAP_CENTS` (default 10000; **set to 20000 in
+  .env since 2026-07-22** — user raised it to a $200 sanity bound for x-tag
+  bulk flushes; their real X console credit was $47.86 at the time, which is
+  the true limit) against `api_usage` before any call and ledger every
+  request. **Never make a paid X API call without explicit user approval of
+  the spend.**
 - Extraction (`extract.py`) is pure functions of text → re-runnable via
   `reextract.py`. When adding a platform: pattern in `_LINK_PATTERNS`, domain in
   `_NON_WEBSITE_DOMAINS`, row in a seed migration, maybe `display_rank`. Aliases
