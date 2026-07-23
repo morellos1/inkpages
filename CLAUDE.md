@@ -12,7 +12,76 @@ rationale: `docs/schema.md` and `docs/pipeline.md`. Untapped-source scouting
 (vgen/itaku/misskey/tumblr next; cara+mihuashi+instagram no-go, with reasons):
 `docs/source-scouting.md` (probed live 2026-07-22).
 
-## Current state (2026-07-22 end of day — three sources landed, zines purged)
+## Current state (2026-07-23 — x-tag extension shipped, 2.4k-artist bulk import)
+
+**Directory 8,169 artists** (was 5,655 — the user's X following list added
+~2,500 via the new x-tag extension in one day). Review queue **301 pending**
+(ingest minted 7 cluster_merge + 11 singleton_gate + 65 anomalies on top of
+the old ~135 — working it is the top human task). Paid X spend **$112.38 of
+the $200 cap** (`X_SPEND_CAP_CENTS=20000` in .env; real X-console credit is
+the true ceiling, ~$14 left — top up before the next big tagging session).
+Migrations at 0033. A <$10 standing-rule hydration ring (917 handles) +
+pipeline may still be in flight from the last session — check
+`pgrep -fl inkpages` / the /xtag dashboard before starting new runs.
+
+**x-tag extension (xtag/, Chrome MV3 + review-UI API) — the day's arc, all
+landed and user-verified on x.com:**
+- Core flow: tag on hover card (button sits LEFT of Follow — the follow
+  button's parent is a COLUMN flex div, we row-ify it via
+  `.xtag-hover-actions`), on profile header, on every tweet's action row
+  (author = article's User-Name = original poster on reposts; quoted cards
+  have no action row so they're skipped), or bulk on follower/following
+  lists. **Select all auto-scrolls the whole virtualized list** (sub-viewport
+  steps — rows must pass through the render window; 4 quiet beats past the
+  bottom = end; button becomes Stop). Selection keyed by handle, persisted in
+  chrome.storage.local, and Add/Remove only deselect server-confirmed
+  handles — a raw[:500] server truncation once silently ate 2,000 of a
+  2,500-handle bulk add; never cap silently again (_MAX_HANDLES 20k → 413).
+- State model (server `_x_states`, the honest-badge invariant): **queued
+  (amber) until the paid flush hydrates, no matter what** — cluster never
+  mints singletons for unhydrated manual_tags (gate in cluster.py step 3) and
+  queued outranks listed; **tagged** = hydrated awaiting cluster (green,
+  idempotent re-tag); listed = in directory. Badges are truncation-proof
+  (better-x structured-host placement: badge is the 2nd flex item of the
+  name link's row, name ellipsizes instead).
+- Server: `/api/x/{status,tag,untag,queue,flush}` + `/xtag` dashboard
+  (stats, pgrep-based worker status — pattern must NOT start with a dash —
+  log tail from xtag-pipeline.log, flush history, filtered/paginated tag
+  table with bulk remove). Auth = X-Inkpages-Token header
+  (INKPAGES_TAG_TOKEN in .env, auto-generated, printed at startup). Flask
+  runs threaded; flush is the only paid path (cost shown on the button =
+  the approval; budget-guarded against the shared ledger).
+- Multi-PC: extension is a thin client — second machine = copy
+  xtag/extension/ + SSH tunnel to 8322 (or Tailscale: INKPAGES_HOST bind
+  override, *.ts.net host permissions). Admin routes have NO login — never
+  bind non-loopback outside a tailnet.
+- Untag semantics: queued+historyless deletes, known hides, listed
+  suppresses the artist (reversible from /removed); tag never lifts a
+  suppression.
+- Bulk-ingest scale lesson: pipeline crawl step is now 600 hubs/run; a
+  2,400-account ingest mints ~1,000 hub pages and merges are blocked until
+  they're crawled — chain crawl_links --max-hubs 1200 + second pipeline
+  after any big flush.
+
+**Potofu hydration + xfolio verdict (2026-07-22 eve)** — see the blocks in
+the previous-state section below: potofu og-tag capture lives in
+crawl_links (PROFILE_OG_HUBS), xfolio is a documented NO-GO (sitewide
+recaptcha wall).
+
+**Next up (in priority order):**
+1. **Misskey cross-hydration** (~710 unhydrated misskey accounts, open
+   per-instance API, free edges from profile fields[]).
+2. **Work the review queue** (301 pending) + Demoted page.
+3. **Tumblr enrichment** — still blocked on user registering the free API
+   key (tumblr.com/oauth/apps); 1,568 held accounts.
+4. **Cara exploration** (re-probe for an official API; never circumvent
+   bot protection).
+5. Recurring skims: DA popular rotation, vgen tier-1/2 re-walks, pixiv tag
+   rounds, bluesky expansion. X spend: standing rule = auto-run hydration
+   backlog rings < $10; deep rings collapse (frontier economics) so stop
+   when yield does.
+
+## Previous state (2026-07-22 end of day — three sources landed, zines purged)
 
 **Directory 5,655 artists** (lang_en 3,969 / ja 2,075 / zh 236), ~32k
 account rows, **1,103 vgen-anchored**. Paid X spend **$78.92 of $100**.
