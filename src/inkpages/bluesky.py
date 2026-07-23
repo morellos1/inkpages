@@ -92,6 +92,9 @@ class Bluesky:
         reason = item.get("reason") or {}
         return reason.get("indexedAt") or item.get("post", {}).get("indexedAt")
 
+    def get_profile(self, actor: str) -> dict:
+        return self._get("app.bsky.actor.getProfile", actor=actor)
+
     def get_profiles(self, dids: list[str]) -> list[dict]:
         profiles = []
         for i in range(0, len(dids), 25):

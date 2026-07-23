@@ -9,9 +9,12 @@ Usage:
   uv run python -m inkpages.discover_bluesky --feed at://did:plc:.../app.bsky.feed.generator/aaal...
   uv run python -m inkpages.discover_bluesky --starter-pack https://bsky.app/starter-pack/<handle>/<rkey>
   uv run python -m inkpages.discover_bluesky --list at://did:plc:.../app.bsky.graph.list/...
+  uv run python -m inkpages.discover_bluesky --hydrate-known --limit 2400
 """
 import argparse
 from collections import Counter
+
+import httpx
 
 from . import db
 from .bluesky import Bluesky
@@ -160,6 +163,109 @@ def process_profile(conn, platforms: dict[str, int], profile: dict,
         stats[f"mentions_{mention.claim}"] += 1
 
 
+def hydrate_known(conn, bsky: Bluesky, platforms: dict[str, int], limit: int,
+                  stats: Counter) -> list[dict]:
+    """Cross-hydration backfill: fetch profiles for bluesky accounts that were
+    referenced (bio links, hub crawls, mentions) but never hydrated. Returns
+    the fetched profiles so the caller's activity pass can cover them."""
+    pid = platforms["bluesky"]
+    with conn.cursor() as cur:
+        # Bluesky handles are lowercase; normalize held rows so
+        # get_or_create's claim-by-handle path can find them (skip rows whose
+        # lowercase twin already exists — the twin carries the identity).
+        cur.execute(
+            """update accounts a set handle = lower(handle)
+               where platform_id = %s and last_hydrated is null
+                 and handle <> lower(handle)
+                 and not exists (select 1 from accounts b
+                                 where b.platform_id = a.platform_id
+                                   and b.handle = lower(a.handle) and b.id <> a.id)""",
+            (pid,))
+        cur.execute(
+            """select id, handle, native_id, discovered_via from accounts
+               where platform_id = %s and last_hydrated is null
+                 and status <> 'deleted'
+               order by id limit %s""",
+            (pid, limit))
+        held = cur.fetchall()
+    print(f"hydrate-known: {len(held)} held bluesky accounts")
+
+    # actor (did if known, else handle) -> held row. Handles are globally
+    # unique on bluesky, so handle-keyed claiming is safe (unlike misskey).
+    by_actor: dict[str, tuple] = {}
+    for row in held:
+        row_id, handle, native_id, via = row
+        actor = native_id if (native_id or "").startswith("did:") else (handle or "").lower()
+        if actor:
+            by_actor.setdefault(actor, row)
+
+    actors = list(by_actor)
+    profiles: list[dict] = []
+    failed: set[str] = set()  # transient errors — stay held for a later run
+    for i in range(0, len(actors), 25):
+        batch = actors[i:i + 25]
+        try:
+            profiles += bsky.get_profiles(batch)
+        except httpx.HTTPStatusError:
+            # One unresolvable actor 400s the whole batch — retry singly;
+            # per-actor 400s are definitively gone (fall through to the
+            # deleted sweep), other errors stay held.
+            for actor in batch:
+                try:
+                    profiles.append(bsky.get_profile(actor))
+                except httpx.HTTPStatusError as exc:
+                    if exc.response.status_code != 400:
+                        failed.add(actor)
+                except httpx.HTTPError:
+                    failed.add(actor)
+        except httpx.HTTPError:
+            failed.update(batch)
+        if i and i % 500 == 0:
+            print(f"  …{len(profiles)} profiles fetched")
+
+    matched: set[str] = set()
+    seen_dids: set[str] = set()
+    for profile in profiles:
+        did = profile.get("did")
+        keys = [k for k in (did, (profile.get("handle") or "").lower())
+                if k in by_actor]
+        if not keys:
+            continue
+        matched.update(keys)
+        if not did or did in seen_dids:
+            continue
+        seen_dids.add(did)
+        row_id, _, _, via = by_actor[keys[0]]
+        process_profile(conn, platforms, profile, via,
+                        {"backfill": "hydrate_known"}, stats)
+        stats["hydrated"] += 1
+        with conn.cursor() as cur:
+            # If get_or_create resolved to a pre-existing row for this DID
+            # instead of claiming the held row, the held row is a stale
+            # handle alias — retire it so it leaves the backlog.
+            cur.execute(
+                """update accounts set status = 'deleted', last_hydrated = now()
+                   where id = %s and last_hydrated is null""",
+                (row_id,))
+            if cur.rowcount:
+                stats["alias_retired"] += 1
+        if stats["hydrated"] % 500 == 0:
+            conn.commit()
+
+    # Actors a successful batch simply didn't return (or per-actor 400s):
+    # deactivated / suspended / handle no longer resolves.
+    for actor in set(actors) - matched - failed:
+        with conn.cursor() as cur:
+            cur.execute(
+                """update accounts set status = 'deleted', last_hydrated = now()
+                   where id = %s and last_hydrated is null""",
+                (by_actor[actor][0],))
+        stats["deleted"] += 1
+    stats["fetch_failed"] = len(failed)
+    conn.commit()
+    return [p for p in profiles if p.get("did") in seen_dids]
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--feed", action="append", default=[],
@@ -174,23 +280,34 @@ def main() -> None:
     parser.add_argument("--posts-per-feed", type=int, default=100)
     parser.add_argument("--no-activity", action="store_true",
                         help="skip per-account last-post lookups")
+    parser.add_argument("--hydrate-known", action="store_true",
+                        help="fetch profiles for held bluesky accounts "
+                             "(bio-link/hub targets never hydrated)")
+    parser.add_argument("--limit", type=int, default=2400,
+                        help="max held accounts per hydrate-known run")
     args = parser.parse_args()
 
-    if not (args.feed or args.starter_pack or args.list or args.bootstrap_query):
-        parser.error("no sources given (use --feed/--starter-pack/--list or --bootstrap-query)")
+    has_sources = bool(args.feed or args.starter_pack or args.list or args.bootstrap_query)
+    if not (has_sources or args.hydrate_known):
+        parser.error("no sources given (use --feed/--starter-pack/--list, "
+                     "--bootstrap-query, or --hydrate-known)")
 
     bsky = Bluesky()
     stats: Counter = Counter()
 
     with db.connect() as conn:
         platforms = db.platform_ids(conn)
-        actors = collect_actors(bsky, args)
-        print(f"collected {len(actors)} unique actors; hydrating…")
+        profiles: list[dict] = []
+        if has_sources:
+            actors = collect_actors(bsky, args)
+            print(f"collected {len(actors)} unique actors; hydrating…")
 
-        profiles = bsky.get_profiles(list(actors))
-        for profile in profiles:
-            meta = actors[profile["did"]]
-            process_profile(conn, platforms, profile, meta["via"], meta["details"], stats)
+            profiles = bsky.get_profiles(list(actors))
+            for profile in profiles:
+                meta = actors[profile["did"]]
+                process_profile(conn, platforms, profile, meta["via"], meta["details"], stats)
+        if args.hydrate_known:
+            profiles += hydrate_known(conn, bsky, platforms, args.limit, stats)
         conn.commit()
 
         if not args.no_activity:
