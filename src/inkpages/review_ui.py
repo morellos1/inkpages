@@ -2368,9 +2368,17 @@ def xtag_remove():
 
 def main():
     print("x-tag API token:", tag_token())
+    # INKPAGES_HOST: default loopback-only. Set it to your Tailscale IP (or
+    # 0.0.0.0 behind a trusted private network ONLY) so the x-tag extension
+    # on another machine can reach the API. The HTML admin routes have CSRF
+    # but no login — never bind to anything internet-reachable.
+    host = db.env_var("INKPAGES_HOST") or "127.0.0.1"
+    if host != "127.0.0.1":
+        print(f"WARNING: binding {host} — admin UI is reachable by anything "
+              "that can route here; keep this to a private tailnet/VPN")
     # threaded: a bulk x-tag write must not block status lookups / page loads
     # (each request opens its own DB connection, so this is safe).
-    app.run(host="127.0.0.1", port=PORT, debug=False, threaded=True)
+    app.run(host=host, port=PORT, debug=False, threaded=True)
 
 
 if __name__ == "__main__":

@@ -32,6 +32,32 @@ optionally a pipeline pass so the new artists actually list.
   keyed by handle, survives reloads (chrome.storage.local), and Add/Remove
   only deselect what the server confirmed.
 
+## Using from a second PC (shared pool)
+
+All state lives in the dev machine's Postgres behind the review UI — the
+extension is a thin client, so any number of machines tag into the same
+pool. On the second PC:
+
+1. **Get the extension**: copy the `xtag/extension/` folder (with `dist/`
+   built) to the PC and Load-unpack it — no repo/node needed there. Rebuild
+   + recopy when the extension changes.
+2. **Reach the server**, either:
+   - **SSH tunnel** (zero config): `ssh -N -L 8322:127.0.0.1:8322 you@devmac`,
+     keep base URL `http://127.0.0.1:8322`; or
+   - **Tailscale**: put both machines on your tailnet, set
+     `INKPAGES_HOST=<tailscale-ip>` in the dev machine's `.env`, restart the
+     review UI, and set the popup's base URL to
+     `http://<devmac-magicdns-name>.ts.net:8322` (the manifest already has
+     `*.ts.net` host permissions).
+3. **Token**: paste the same `INKPAGES_TAG_TOKEN` into the popup there.
+
+Never bind `INKPAGES_HOST` to anything internet-reachable — the review UI's
+admin routes have CSRF but no login. Tailnet/VPN only.
+
+Concurrent tagging from both machines is safe (idempotent upserts, per-
+request DB connections, chunked writes); checkbox selections are per-browser
+(chrome.storage.local) and never shared — only the resulting pool is.
+
 ## Removal semantics
 
 - queued, never hydrated → the account row is deleted outright.

@@ -8,7 +8,9 @@
     "https://x.com/*",
     "https://twitter.com/*",
     "http://127.0.0.1/*",
-    "http://localhost/*"
+    "http://localhost/*",
+    "http://*.ts.net/*",
+    "https://*.ts.net/*"
   ],
   "background": {
     "service_worker": "dist/service-worker.js",
