@@ -42,8 +42,10 @@ _RATING = re.compile(r"<media:rating>([^<]+)</media:rating>")
 _NEXT = re.compile(r'<atom:link rel="next" href="([^"]+)"')
 
 # The About page embeds its data as window.__INITIAL_STATE__ =
-# JSON.parse("<JS string literal containing JSON>").
-_STATE = re.compile(r'window\.__INITIAL_STATE__\s*=\s*JSON\.parse\("(.*?)"\);', re.S)
+# JSON.parse("<JS string literal containing JSON>"). The literal can itself
+# contain '");' (headState now carries _inlineContent scripts), so the end
+# of the string must be found by walking escapes, not by a regex terminator.
+_STATE_OPEN = re.compile(r'window\.__INITIAL_STATE__\s*=\s*JSON\.parse\("')
 
 
 def _js_string(raw: str) -> str:
@@ -71,11 +73,23 @@ def _js_string(raw: str) -> str:
 
 
 def parse_about_state(page_html: str) -> dict | None:
-    m = _STATE.search(page_html)
+    m = _STATE_OPEN.search(page_html)
     if not m:
         return None
+    i, n = m.end(), len(page_html)
+    start = i
+    while i < n:
+        c = page_html[i]
+        if c == "\\":
+            i += 2
+            continue
+        if c == '"':
+            break
+        i += 1
+    else:
+        return None
     try:
-        return json.loads(_js_string(m.group(1)))
+        return json.loads(_js_string(page_html[start:i]))
     except ValueError:
         return None
 
@@ -103,6 +117,14 @@ def profile_fields(state: dict, username: str) -> dict:
     """Pull the artist's own profile data out of the About page state."""
     owner = state.get("profileOwner") or {}
     user = owner.get("user") or {}
+    # 2026-07: full user objects moved to the normalized @@entities.user
+    # store (keyed by userId as a string); profileOwner.user shrank to {id}.
+    if "usericon" not in user:
+        uid = user.get("userId") or user.get("id")
+        entities = (state.get("@@entities") or {}).get("user") or {}
+        entity = entities.get(str(uid)) or {}
+        if entity.get("username", username).lower() == username.lower():
+            user = {**entity, **user}
     about = _find_key(state, "about") or {}
     text = about.get("textContent") or {}
     excerpt = (text.get("excerpt") or "").strip()
