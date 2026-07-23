@@ -191,6 +191,11 @@ def process_user(conn, platforms: dict, user: dict, via: str, details: dict,
     stats["snapshots"] += 1
 
     db.set_avatar(conn, account_id, user.get("profile_image_url"))
+    # Protected (private) accounts: profile metadata still hydrates, but
+    # tweets are followers-only — surfaced as a 🔒 chip in the UI. Written
+    # every hydration so flipping public/private updates the merged jsonb.
+    db.set_platform_stats(conn, account_id,
+                          {"protected": bool(user.get("protected"))})
     # Only write signals the current bio actually yields — a rephrased bio
     # must not wipe a previously extracted email/commission value with
     # None/unknown (same guard as discover_pixiv).

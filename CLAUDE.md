@@ -14,6 +14,28 @@ rationale: `docs/schema.md` and `docs/pipeline.md`. Untapped-source scouting
 
 ## Current state (2026-07-23 eve — junk-link cleanup + review-UI overhaul)
 
+**Round 3 (same evening): anomaly self-healing + page parity + 🔒.**
+- **Anomalies heal themselves** (cluster.py step 5c): every cluster run
+  re-checks pending anomaly items against CURRENT metrics — an item whose
+  artist/account no longer trips any threshold resolves as
+  `pipeline:anomaly_cleared` (human-decided items untouched). First run
+  after the junk purges cleared 51; re-clustering the cleaned graph also
+  attached 100 members and auto-merged 4 pairs. Queue now 129 pending.
+- **Demoted/Removed pages match the review UI**: pfps, clickable
+  acct_link handles, target=_blank artist links, demotion reason +
+  date chips, suppression ages. The Removed page's hidden-accounts table
+  shows identity platforms only (cap 500 by followers) — the ~10k hidden
+  website-link artifacts from the junk sweeps appear as a count line, not
+  rows (extraction artifacts, not restorable accounts).
+- **Private twitter accounts show a 🔒** ("private" chip on artist pages
+  via the stats macro, lock on directory account chips). `protected` was
+  always fetched and stored in snapshot raw; hydration now writes it to
+  `platform_stats` (merge) and migration 0036 backfilled the population
+  free from latest snapshots — 305 private of 10,201 flagged.
+- Low-signal connections toggle: state tracked in `data-open`, not by
+  matching the button label (leading whitespace made startsWith fail and
+  the label render inverted).
+
 **Round 2 (same evening): asset-link purge + connection ranking.**
 - **Standing junk-website sweep** (`cluster.purge_junk_website_accounts`,
   runs before flag_project_accounts every cluster run): website accounts

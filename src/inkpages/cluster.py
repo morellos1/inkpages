@@ -966,6 +966,7 @@ def main() -> None:
                    from artists ar
                    where ar.status = 'active' and ar.merged_into is null"""
             )
+            currently_flagged: set[int] = set()
             for row in cur.fetchall():
                 reasons = {}
                 if row["hub_fanout"] >= policy.ANOMALY_HUB_FANOUT:
@@ -974,14 +975,16 @@ def main() -> None:
                     reasons["hub_attached"] = row["hub_attached"]
                 if row["related_count"] >= policy.ANOMALY_RELATED_CONNECTIONS:
                     reasons["related_connections"] = row["related_count"]
-                if reasons and not review_exists(conn, "other", "artist_id",
-                                                 row["artist_id"]):
-                    add_review_item(conn, "other", {
-                        "type": "anomaly",
-                        "artist_id": row["artist_id"],
-                        "public_slug": row["public_slug"],
-                        "reasons": reasons,
-                    }, stats)
+                if reasons:
+                    currently_flagged.add(row["artist_id"])
+                    if not review_exists(conn, "other", "artist_id",
+                                         row["artist_id"]):
+                        add_review_item(conn, "other", {
+                            "type": "anomaly",
+                            "artist_id": row["artist_id"],
+                            "public_slug": row["public_slug"],
+                            "reasons": reasons,
+                        }, stats)
 
         # 5b. Cross-artist reference anomaly: a MEMBER account whose edges
         # touch several OTHER artists. Two shapes hide here and only a human
@@ -1012,7 +1015,9 @@ def main() -> None:
                    having count(distinct oaa.artist_id) >= %s""",
                 (policy.ANOMALY_CROSS_ARTIST_REFS,),
             )
+            current_xref_accounts: set[int] = set()
             for row in cur.fetchall():
+                current_xref_accounts.add(row["account_id"])
                 if review_exists(conn, "other", "account_id", row["account_id"]):
                     continue
                 add_review_item(conn, "other", {
@@ -1024,6 +1029,33 @@ def main() -> None:
                                 "account": row["account_label"],
                                 "referenced_by": ", ".join(row["referencing_slugs"])},
                 }, stats)
+
+        # 5c. Anomalies heal: a pending flag whose artist/account no longer
+        # trips ANY current threshold is stale — cleanups (edge retractions,
+        # junk purges, threshold raises) fix the underlying shape, and the
+        # queue must not keep asking a human about it. Auto-resolve, never
+        # touching human-decided items.
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute("""select id, payload from review_items
+                           where status = 'pending' and kind = 'other'""")
+            stale = []
+            for r in cur.fetchall():
+                payload = r["payload"] or {}
+                if payload.get("type") != "anomaly":
+                    continue  # giant components etc. have no recheck rule
+                if payload.get("account_id") is not None:
+                    if payload["account_id"] not in current_xref_accounts:
+                        stale.append(r["id"])
+                elif payload.get("artist_id") is not None:
+                    if payload["artist_id"] not in currently_flagged:
+                        stale.append(r["id"])
+            if stale:
+                cur.execute(
+                    """update review_items
+                       set status = 'rejected', resolved_at = now(),
+                           decided_by = 'pipeline:anomaly_cleared'
+                       where id = any(%s) and status = 'pending'""", (stale,))
+                stats["anomalies_cleared"] += len(stale)
 
         conn.commit()
     print("done:", dict(stats))

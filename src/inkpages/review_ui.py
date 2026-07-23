@@ -297,6 +297,9 @@ document.querySelectorAll('.bio').forEach(function (box) {
   {% elif platform == 'vgen' %}
     {# tags/categories stay in the DB but are too wide to show #}
     {% if s.vgen_reviews %}<span class="stat-chip good">{{ "{:,}".format(s.vgen_reviews) }} reviews{% if s.vgen_rating %} · ★{{ s.vgen_rating }}{% endif %}</span>{% endif %}
+  {% elif platform == 'twitter' %}
+    {# protected=false stays silent — only the lock is information #}
+    {% if s.protected %}<span class="stat-chip warn" title="private account — tweets are followers-only as of the last hydration">🔒 private</span>{% endif %}
   {% else %}
     {# scalars only — a raw list/dict chip once stretched the whole page #}
     {% for k, v in s.items() if v is not none and v is not mapping and (v is string or v is not sequence) %}<span class="stat-chip">{{ k }}: {{ v }}</span>{% endfor %}
@@ -371,7 +374,7 @@ document.querySelectorAll('.bio').forEach(function (box) {
   <td class="nowrap">{{ a.language }}</td>
   <td class="nowrap">{{ "{:,}".format(a.followers) if a.followers else "—" }}</td>
   <td>{% for s in a.sources or [] %}<span class="chip badge-noai" style="background:#e8edf7;color:#14213d">{{ s }}</span>{% endfor %}
-      {% for acc in a.accounts or [] %}<span class="chip">{{ acc.platform }}: {{ acc_label(acc.platform, acc.handle, acc.display_name) }}</span>{% endfor %}</td>
+      {% for acc in a.accounts or [] %}<span class="chip">{{ acc.platform }}: {{ acc_label(acc.platform, acc.handle, acc.display_name) }}{% if acc.stats and acc.stats.protected %} <span title="private account — tweets are followers-only as of the last hydration">🔒</span>{% endif %}</span>{% endfor %}</td>
   {%- set plats = (a.accounts or [])|map(attribute='platform')|list -%}
   <td>{% if a.no_ai_attested %}<span class="chip badge-noai">no-AI</span>{% endif %}
       {% if a.nsfw %}<span class="chip badge-nsfw">18+</span>{% endif %}
@@ -507,8 +510,11 @@ their own — confirm a same-person claim to attach/merge.</p>
 </tr>{% else %}<tr><td colspan="8" class="muted">none</td></tr>{% endfor %}</table>
 {% if lowsig_collapse %}
 <button type="button" class="linkish" style="margin:.4rem 0"
-        onclick="document.querySelectorAll('tr.lowsig').forEach(r=>r.hidden=!r.hidden);
-                 this.textContent = this.textContent.startsWith('show') ? 'hide low-signal connections' : 'show {{ low_signal_count }} low-signal connections (credits, mentions, sites)';">
+        onclick="var on = this.dataset.open === '1';
+                 document.querySelectorAll('tr.lowsig').forEach(function(r){ r.hidden = on; });
+                 this.dataset.open = on ? '0' : '1';
+                 this.textContent = on ? 'show {{ low_signal_count }} low-signal connections (credits, mentions, sites)'
+                                       : 'hide low-signal connections';">
   show {{ low_signal_count }} low-signal connections (credits, mentions, sites)</button>
 {% endif %}
 <form id="bulkconn" class="inline" method="post" action="{{ url_for('bulk_connections', artist_id=artist.id) }}">{{ csrf() }}
@@ -620,11 +626,16 @@ Removing here = the same rules as the extension: queued rows delete, known rows 
 <p class="muted">Open-harvest accounts that failed the artist-evidence test. Restore
 puts an artist back in the directory and permanently exempts them from auto-demotion.</p>
 {% if not items %}<p class="muted">Nothing here.</p>{% endif %}
-<table>{% if items %}<tr><th>artist</th><th>followers</th><th>bio</th><th></th></tr>{% endif %}
+<table>{% if items %}<tr><th></th><th>artist</th><th>platforms</th><th>followers</th><th>reason</th><th>demoted</th><th>bio</th><th></th></tr>{% endif %}
 {% for a in items %}<tr>
-  <td><a href="{{ url_for('artist', artist_id=a.id) }}"><b>{{ a.public_slug }}</b></a><br>
-      <span class="muted">{{ a.display_name }}</span></td>
-  <td>{{ "{:,}".format(a.followers) if a.followers else "—" }}</td>
+  <td>{% if a.avatar_url %}<img class="pfp" src="{{ img_src(a.avatar_url) }}" loading="lazy">{% else %}<span class="pfp" style="display:inline-block"></span>{% endif %}</td>
+  <td class="trunc" title="{{ a.display_name or '' }} /{{ a.public_slug }}">
+      <a href="{{ url_for('artist', artist_id=a.id) }}" target="_blank"><b>{{ a.display_name or a.public_slug }}</b></a><br>
+      <span class="muted">/{{ a.public_slug }}</span></td>
+  <td class="muted nowrap">{{ a.platforms or "—" }}</td>
+  <td class="nowrap">{{ "{:,}".format(a.followers) if a.followers else "—" }}</td>
+  <td class="nowrap">{% if a.reason %}<span class="chip badge-suppressed">{{ a.reason }}</span>{% endif %}</td>
+  <td class="nowrap muted">{{ a.demoted_at.date() if a.demoted_at else "—" }}</td>
   <td>{{ m.bio(a.bio) }}</td>
   <td><form class="inline" method="post" action="{{ url_for('restore', artist_id=a.id) }}">{{ csrf() }}
       <button class="ok">Restore</button></form></td>
@@ -638,35 +649,42 @@ deleted — snapshots, edges and memberships are all kept.</p>
 
 <h2>Suppressed artists ({{ suppressed|length }})</h2>
 <p class="muted">Explicit removals — opt-outs, impersonation, confirmed AI use. Lift from the artist page; a suppression survives re-discovery forever.</p>
-<table>{% if suppressed %}<tr><th>artist</th><th>reason</th><th>note</th><th>since</th></tr>{% endif %}
+<table>{% if suppressed %}<tr><th></th><th>artist</th><th>reason</th><th>note</th><th>since</th></tr>{% endif %}
 {% for s in suppressed %}<tr>
-  <td><a href="{{ url_for('artist', artist_id=s.artist_id) }}"><b>{{ s.public_slug }}</b></a> <span class="muted">{{ s.display_name }}</span></td>
+  <td>{% if s.avatar_url %}<img class="pfp sm" src="{{ img_src(s.avatar_url) }}" loading="lazy">{% endif %}</td>
+  <td><a href="{{ url_for('artist', artist_id=s.artist_id) }}" target="_blank"><b>{{ s.display_name or s.public_slug }}</b></a> <span class="muted">/{{ s.public_slug }}</span></td>
   <td><span class="chip badge-suppressed">{{ s.reason }}</span></td>
   <td class="muted">{{ s.note or "" }}</td>
-  <td>{{ s.created_at.date() }}</td>
+  <td class="nowrap">{{ s.created_at.date() }} <span class="agechip">({{ age_of(s.created_at) }})</span></td>
 </tr>{% else %}<tr><td class="muted">none</td></tr>{% endfor %}</table>
 
 <h2>Suppressed accounts ({{ suppressed_accounts|length }})</h2>
 <p class="muted">Account-scoped: only this account is hidden, the artist stays listed.</p>
-<table>{% if suppressed_accounts %}<tr><th>account</th><th>artist</th><th>reason</th><th>note</th><th>since</th></tr>{% endif %}
+<table>{% if suppressed_accounts %}<tr><th></th><th>account</th><th>artist</th><th>reason</th><th>note</th><th>since</th></tr>{% endif %}
 {% for s in suppressed_accounts %}<tr>
-  <td><span class="chip">{{ s.platform }}: {{ s.handle }}</span></td>
-  <td>{% if s.artist_id %}<a href="{{ url_for('artist', artist_id=s.artist_id) }}">{{ s.public_slug }}</a>{% else %}<span class="muted">—</span>{% endif %}</td>
+  <td>{% if s.avatar_url %}<img class="pfp sm" src="{{ img_src(s.avatar_url) }}" loading="lazy">{% endif %}</td>
+  <td><span class="chip">{{ s.platform }}: {{ m.acct_link(s.platform, s.handle, s.profile_url, s.display_name) }}</span></td>
+  <td>{% if s.artist_id %}<a href="{{ url_for('artist', artist_id=s.artist_id) }}" target="_blank">{{ s.public_slug }}</a>{% else %}<span class="muted">—</span>{% endif %}</td>
   <td><span class="chip badge-suppressed">{{ s.reason }}</span></td>
   <td class="muted">{{ s.note or "" }}</td>
-  <td>{{ s.created_at.date() }}</td>
+  <td class="nowrap">{{ s.created_at.date() }} <span class="agechip">({{ age_of(s.created_at) }})</span></td>
 </tr>{% else %}<tr><td class="muted">none</td></tr>{% endfor %}</table>
 
-<h2>Hidden accounts ({{ hidden|length }})</h2>
+<h2>Hidden accounts ({{ hidden|length }}{{ '+' if hidden|length == 500 }})</h2>
 <p class="muted">The standing verification cull: Twitter/Bluesky accounts under
 {{ cull_min }} followers (plus any manual hides). Unhide restores the account
 everywhere on the next pipeline run — but the cull will re-hide it unless the
-follower count has crossed {{ cull_min }}.</p>
-<table>{% if hidden %}<tr><th>account</th><th>followers</th><th>artist</th><th>discovered via</th><th></th></tr>{% endif %}
+follower count has crossed {{ cull_min }}.
+{% if hidden_website_count %}<br>Plus <b>{{ "{:,}".format(hidden_website_count) }}</b>
+hidden website-link artifacts (asset files, ad scripts, blocklisted domains —
+auto-hidden by the junk sweep, not shown: they are extraction artifacts, not
+restorable accounts).{% endif %}</p>
+<table>{% if hidden %}<tr><th></th><th>account</th><th>followers</th><th>artist</th><th>discovered via</th><th></th></tr>{% endif %}
 {% for h in hidden %}<tr>
-  <td>{{ m.acct_link(h.platform, h.handle, h.profile_url, h.display_name) }}</td>
-  <td>{{ "{:,}".format(h.followers_count) if h.followers_count is not none else "—" }}</td>
-  <td>{% if h.artist_id %}<a href="{{ url_for('artist', artist_id=h.artist_id) }}">{{ h.public_slug }}</a>{% else %}<span class="muted">—</span>{% endif %}</td>
+  <td>{% if h.avatar_url %}<img class="pfp sm" src="{{ img_src(h.avatar_url) }}" loading="lazy">{% endif %}</td>
+  <td><span class="chip">{{ h.platform }}: {{ m.acct_link(h.platform, h.handle, h.profile_url, h.display_name) }}</span></td>
+  <td class="nowrap">{{ "{:,}".format(h.followers_count) if h.followers_count is not none else "—" }}</td>
+  <td>{% if h.artist_id %}<a href="{{ url_for('artist', artist_id=h.artist_id) }}" target="_blank">{{ h.public_slug }}</a>{% else %}<span class="muted">—</span>{% endif %}</td>
   <td class="muted">{{ h.discovered_via }}</td>
   <td><form class="inline" method="post" action="{{ url_for('unhide', account_id=h.id) }}"
        data-confirm="Unhide {{ h.platform }}:{{ h.handle }}? It reappears in the directory (the pipeline cull may re-hide it if still under {{ cull_min }} followers).">{{ csrf() }}
@@ -1307,6 +1325,22 @@ def demoted():
                    (select max(a.followers_count) from artist_accounts aa
                     join accounts a on a.id = aa.account_id
                     where aa.artist_id = ar.id and aa.removed_at is null) as followers,
+                   (select a.avatar_url from artist_accounts aa
+                    join accounts a on a.id = aa.account_id
+                    join platforms p on p.id = a.platform_id
+                    where aa.artist_id = ar.id and aa.removed_at is null
+                      and a.avatar_url is not null
+                    order by p.display_rank, a.followers_count desc nulls last
+                    limit 1) as avatar_url,
+                   (select string_agg(distinct p.slug, ', ') from artist_accounts aa
+                    join accounts a on a.id = aa.account_id
+                    join platforms p on p.id = a.platform_id
+                    where aa.artist_id = ar.id and aa.removed_at is null) as platforms,
+                   (select max(e.created_at) from artist_events e
+                    where e.artist_id = ar.id and e.event = 'suppressed') as demoted_at,
+                   (select e.details ->> 'reason' from artist_events e
+                    where e.artist_id = ar.id and e.event = 'suppressed'
+                    order by e.created_at desc limit 1) as reason,
                    (select s.bio_text from artist_accounts aa
                     join account_snapshots s on s.account_id = aa.account_id
                     where aa.artist_id = ar.id and aa.removed_at is null
@@ -1323,12 +1357,20 @@ def removed():
     with db.connect() as conn:
         suppressed = q(conn, """
             select s.artist_id, s.reason, s.note, s.created_at,
-                   ar.public_slug, ar.display_name
+                   ar.public_slug, ar.display_name,
+                   (select a.avatar_url from artist_accounts aa
+                    join accounts a on a.id = aa.account_id
+                    join platforms p on p.id = a.platform_id
+                    where aa.artist_id = ar.id and aa.removed_at is null
+                      and a.avatar_url is not null
+                    order by p.display_rank, a.followers_count desc nulls last
+                    limit 1) as avatar_url
             from suppressions s join artists ar on ar.id = s.artist_id
             where s.lifted_at is null and s.artist_id is not null
             order by s.created_at desc""")
         suppressed_accounts = q(conn, """
             select s.reason, s.note, s.created_at, a.handle::text as handle,
+                   a.display_name, a.profile_url, a.avatar_url,
                    p.slug as platform, ar.id as artist_id, ar.public_slug
             from suppressions s
             join accounts a on a.id = s.account_id
@@ -1337,16 +1379,25 @@ def removed():
             left join artists ar on ar.id = aa.artist_id
             where s.lifted_at is null and s.account_id is not null
             order by s.created_at desc""")
+        # Junk-sweep artifacts (website accounts hidden by the extraction
+        # blocklist / asset guards) would drown the real cull list ~10k rows
+        # deep — they are extraction artifacts, not restorable accounts, so
+        # they surface only as a count.
         hidden = q(conn, """
             select a.id, a.handle::text as handle, a.display_name, a.profile_url,
-                   a.followers_count, a.discovered_via, p.slug as platform,
-                   ar.id as artist_id, ar.public_slug
+                   a.avatar_url, a.followers_count, a.discovered_via,
+                   p.slug as platform, ar.id as artist_id, ar.public_slug
             from accounts a
             join platforms p on p.id = a.platform_id
             left join artist_accounts aa on aa.account_id = a.id and aa.removed_at is null
             left join artists ar on ar.id = aa.artist_id
-            where a.status = 'hidden'
-            order by a.followers_count desc nulls last, a.id""")
+            where a.status = 'hidden' and p.slug <> 'website'
+            order by a.followers_count desc nulls last, a.id
+            limit 500""")
+        hidden_website_count = q(conn, """
+            select count(*) n from accounts a
+            join platforms p on p.id = a.platform_id
+            where a.status = 'hidden' and p.slug = 'website'""")[0]["n"]
         invisible = q(conn, """
             select ar.id, ar.public_slug, ar.display_name,
                    string_agg(p.slug || ':' || a.handle || ' (' || a.status || ')',
@@ -1364,6 +1415,7 @@ def removed():
         return render_template("removed.html", suppressed=suppressed,
                                suppressed_accounts=suppressed_accounts,
                                hidden=hidden, invisible=invisible,
+                               hidden_website_count=hidden_website_count,
                                cull_min=policy.CULL_MIN_FOLLOWERS,
                                pending=pending_count(conn),
                                demoted_count=demoted_count(conn))
