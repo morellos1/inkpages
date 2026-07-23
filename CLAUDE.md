@@ -14,15 +14,15 @@ rationale: `docs/schema.md` and `docs/pipeline.md`. Untapped-source scouting
 
 ## Current state (2026-07-23 — x-tag extension shipped, 2.4k-artist bulk import)
 
-**Directory 8,169 artists** (was 5,655 — the user's X following list added
-~2,500 via the new x-tag extension in one day). Review queue **301 pending**
-(ingest minted 7 cluster_merge + 11 singleton_gate + 65 anomalies on top of
-the old ~135 — working it is the top human task). Paid X spend **$112.38 of
-the $200 cap** (`X_SPEND_CAP_CENTS=20000` in .env; real X-console credit is
-the true ceiling, ~$14 left — top up before the next big tagging session).
-Migrations at 0033. A <$10 standing-rule hydration ring (917 handles) +
-pipeline may still be in flight from the last session — check
-`pgrep -fl inkpages` / the /xtag dashboard before starting new runs.
+**Directory 8,607 artists** (was 5,655 — the user's X following list added
+~2,900 net via the new x-tag extension + its frontier rings in one day).
+Review queue **369 pending** — working it is the top human task. Paid X
+spend **$116.54 of the $200 cap** (`X_SPEND_CAP_CENTS=20000` in .env; real
+X-console credit is the true ceiling, ~$10 left — top up before the next
+big tagging session). Migrations at 0033. Frontier converged
+(917→189→227→65 handles; the residual ~$0.65 ring is fine to fold into
+the next pipeline round under the standing rule). All background runs from
+2026-07-23 are complete.
 
 **x-tag extension (xtag/, Chrome MV3 + review-UI API) — the day's arc, all
 landed and user-verified on x.com:**
@@ -77,9 +77,11 @@ Traps encoded in the worker: remote-user pages (`/@user@host`) must pass
 host or a same-named LOCAL user hydrates instead; held rows update
 directly (get_or_create's claim-by-handle could cross instances);
 native_id = `instance:id`. Snapshots stay reextractable; fields[] →
-profile_field (pixiv-social-block rules). Post-flush frontier rings
-converged 917→189→227 handles (~289→67→13 artists — collapse as
-measured); final $2.27 ring may be in flight.
+profile_field (pixiv-social-block rules). Post-flush frontier rings all
+complete: 917→189→227→65 handles, yields ~289→67→13→78 artists (the
+last ring bounced because misskey bios refreshed the frontier — rings
+after a NEW enrichment source are worth one more round than raw
+frontier-collapse math suggests).
 
 **Next up (in priority order):**
 1. **Work the review queue** (~350 pending) + Demoted page.
