@@ -124,6 +124,26 @@ TEMPLATES = {
   .rulegrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(21rem, 1fr)); gap: .9rem; }
   .rulegrid .card { margin-bottom: 0; }
   .livecount { float: right; font-size: .8em; color: #6b7280; }
+  /* Review queue */
+  .pfp { width: 40px; height: 40px; border-radius: 50%; object-fit: cover;
+         vertical-align: middle; background: #eef1f7; flex: none; }
+  .pfp.sm { width: 28px; height: 28px; }
+  .artist-chip { display: inline-flex; align-items: center; gap: .55rem;
+                 background: #f6f8fc; border: 1px solid #dfe6f0; border-radius: 10px;
+                 padding: .3rem .8rem .3rem .35rem; margin: .15rem .4rem .15rem 0; }
+  .artist-chip .who { line-height: 1.25; }
+  .edge-dir { display: inline-block; font-weight: 700; border-radius: 9px;
+              padding: 0 .5em; font-size: .8em; white-space: nowrap; }
+  .edge-dir.mutual { background: #d7f4dd; color: #14532d; }
+  .edge-dir.oneway { background: #fef3c7; color: #92400e; }
+  .review-bar { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; }
+  .review-bar .jump { margin-left: auto; display: flex; gap: .9rem; flex-wrap: wrap; }
+  .review-bar .jump a { text-decoration: none; color: #14213d; font-weight: 600; }
+  .review-bar .jump a:hover { text-decoration: underline; }
+  .gate-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(26rem, 1fr)); gap: .9rem; }
+  .gate-grid .card { margin-bottom: 0; display: flex; flex-direction: column; }
+  .gate-grid .card .grow { flex: 1; }
+  .agechip { color: #9aa3b2; font-size: .82em; white-space: nowrap; }
 </style></head><body>
 <header>
   <a class="brand" href="{{ url_for('index') }}" data-dirlink>inkpages review</a>
@@ -779,59 +799,77 @@ Solid boxes are accounts we've verified; a dashed box is the account being judge
   <form class="inline" method="post" action="{{ url_for('decide', item_id=item.id, decision='approve') }}">{{ csrf() }}<button class="ok">{{ ok }}</button></form>
   <form class="inline" method="post" action="{{ url_for('decide', item_id=item.id, decision='reject') }}">{{ csrf() }}<button class="no">{{ no }}</button></form>
 {% endmacro %}
+{% macro artist_chip(a, artist_id=None) %}
+  <span class="artist-chip">
+    {% if a and a.avatar_url %}<img class="pfp" src="{{ img_src(a.avatar_url) }}" loading="lazy">{% else %}<span class="pfp" style="display:inline-block"></span>{% endif %}
+    <span class="who"><a href="{{ url_for('artist', artist_id=artist_id or a.id) }}" target="_blank"><b>{{ a.public_slug if a else '?' }}</b></a><br>
+    <span class="muted">{{ "{:,}".format(a.followers) + " followers" if a and a.followers is not none else "followers unknown" }}</span></span>
+  </span>
+{% endmacro %}
 <form id="bulk" method="post" action="{{ url_for('bulk_decide') }}">{{ csrf() }}</form>
-<div class="card" style="position:sticky;top:0;z-index:5">
+<div class="card review-bar" style="position:sticky;top:0;z-index:5">
   <button type="button" onclick="document.querySelectorAll('input[name=items]').forEach(c=>c.checked=true)">Select all</button>
   <button type="button" onclick="document.querySelectorAll('input[name=items]').forEach(c=>c.checked=false)">Clear</button>
   <button class="ok" form="bulk" name="decision" value="approve"
           data-confirm="Approve all selected?">Approve selected</button>
   <button class="no" form="bulk" name="decision" value="reject"
           data-confirm="Reject all selected?">Reject selected</button>
+  <span class="jump">
+    <a href="#merges">Merges <span class="pill">{{ merge_items|length }}</span></a>
+    <a href="#anomalies">Anomalies <span class="pill">{{ anomaly_groups|length }}</span></a>
+    <a href="#unlikely">Unlikely artists <span class="pill">{{ gate_total }}</span></a>
+    {% if attach_total %}<a href="#attaches">Attaches <span class="pill">{{ attach_total }}</span></a>{% endif %}
+  </span>
 </div>
-<h1>Merge decisions <span class="muted">({{ merge_items|length }})</span></h1>
+
+<section id="merges">
+<h1>Merge decisions <span class="muted">({{ merge_items|length }})</span>
+  <button type="button" class="linkish" onclick="selectSection('merges', true)">select all</button></h1>
 {% if not merge_items %}<p class="muted">No merge decisions pending.</p>{% endif %}
 {% for item in merge_items %}
 <div class="card">
-  <b>#{{ item.id }} · {{ item.kind }}</b> <span class="muted">{{ item.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
-  {% if item.kind == 'cluster_merge' %}
-    <p>{% for a in item.ctx.artists %}<a href="{{ url_for('artist', artist_id=a.id) }}"><b>{{ a.public_slug }}</b></a>
-       <span class="muted">({{ "{:,}".format(a.followers) if a.followers is not none else "? " }} followers)</span>{% if not loop.last %} + {% endif %}{% endfor %}</p>
-    <p class="muted">Connecting evidence:</p>
-    <ul class="muted">
-    {% for ev in item.ctx.evidence %}
-      <li>{{ ev.src_platform }}:{{ ev.src_handle }} → {{ ev.tgt_platform }}:{{ ev.tgt_handle }}
-          — {{ ev.evidence_type }}{% if ev.claim == 'related' %} (related){% endif %}
-          {% if ev.matched_text %} · “{{ ev.matched_text }}”{% endif %}
-          {% if ev.evidence_url %} · <a href="{{ ev.evidence_url }}" target="_blank">source</a>{% endif %}</li>
-    {% else %}<li>no live edges found (may already be resolved)</li>{% endfor %}
-    </ul>
-    <p class="muted">Approve = merge into <b>{{ item.ctx.keeper_slug }}</b>.</p>
-  {% else %}<pre>{{ item.payload }}</pre>{% endif %}
-  {{ decide_buttons(item) }}
+  <div style="display:flex;align-items:center;gap:.3rem;flex-wrap:wrap">
+    {% for a in item.ctx.artists %}{{ artist_chip(a) }}{% if not loop.last %}<span style="font-size:1.3em;color:#9aa3b2">+</span>{% endif %}{% endfor %}
+    {% if item.ctx.any_mutual %}<span class="edge-dir mutual">⇄ has two-way links</span>
+    {% else %}<span class="edge-dir oneway">→ one-way evidence only</span>{% endif %}
+    <span class="agechip" style="margin-left:auto">#{{ item.id }} · {{ age_of(item.created_at) }} ago</span>
+  </div>
+  <ul class="muted" style="margin:.6rem 0">
+  {% for ev in item.ctx.evidence %}
+    <li>{% if ev.mutual %}<span class="edge-dir mutual" title="the target links back">⇄</span>{% else %}<span class="edge-dir oneway" title="no link back from the target">→</span>{% endif %}
+        {{ ev.src_platform }}:{% if ev.src_url %}<a href="{{ ev.src_url }}" target="_blank" rel="noopener">{{ acc_label(ev.src_platform, ev.src_handle, ev.src_name) }}</a>{% else %}{{ acc_label(ev.src_platform, ev.src_handle, ev.src_name) }}{% endif %}
+        → {{ ev.tgt_platform }}:{% if ev.tgt_url %}<a href="{{ ev.tgt_url }}" target="_blank" rel="noopener">{{ acc_label(ev.tgt_platform, ev.tgt_handle, ev.tgt_name) }}</a>{% else %}{{ acc_label(ev.tgt_platform, ev.tgt_handle, ev.tgt_name) }}{% endif %}
+        — {{ ev.evidence_type }}{% if ev.claim == 'related' %} (related){% endif %}
+        {% if ev.matched_text %} · “{{ ev.matched_text }}”{% endif %}
+        {% if ev.evidence_url %} · <a href="{{ ev.evidence_url }}" target="_blank">source</a>{% endif %}</li>
+  {% else %}<li>no live edges found (may already be resolved)</li>{% endfor %}
+  </ul>
+  <p class="muted">Approve = merge into <b>{{ item.ctx.keeper_slug }}</b>.</p>
+  {{ decide_buttons(item, ok='Merge') }}
 </div>
 {% endfor %}
+</section>
 
-<h1>Anomaly flags <span class="muted">({{ anomaly_count }} across {{ anomaly_groups|length }} artists)</span></h1>
+<section id="anomalies">
+<h1>Anomaly flags <span class="muted">({{ anomaly_count }} across {{ anomaly_groups|length }} artists)</span>
+  <button type="button" class="linkish" onclick="selectSection('anomalies', true)">select all</button></h1>
 {% if not anomaly_groups %}<p class="muted">Nothing looks off.</p>{% endif %}
 {% for g in anomaly_groups %}
 {%- set ids = g['items']|map(attribute='id')|join(',') -%}
 <div class="card">
   {% if g.public_slug %}
-  ⚠️ <a href="{{ url_for('artist', artist_id=g.artist_id) }}"><b>{{ g.public_slug }}</b></a>
-  <span class="muted">#{{ ids }}</span>
-  <ul style="margin:.4rem 0">
-  {% for item in g['items'] %}
-    <li>{% for k, v in item.payload.reasons.items() %}<span class="chip badge-nsfw">{{ k }}: {{ v }}</span> {% endfor %}</li>
-  {% endfor %}
-  </ul>
-  <p class="muted">Inspect the artist page; detach anything wrong there.</p>
+  <div style="display:flex;align-items:center;gap:.3rem;flex-wrap:wrap">
+    {{ artist_chip(g.artist or {'public_slug': g.public_slug, 'followers': none, 'avatar_url': none}, artist_id=g.artist_id) }}
+    {% for item in g['items'] %}{% for k, v in item.payload.reasons.items() %}<span class="chip edge-dir oneway">{{ k }}: {{ v }}</span> {% endfor %}{% endfor %}
+    <span class="agechip" style="margin-left:auto">#{{ ids }}</span>
+  </div>
+  <p class="muted">Inspect the artist page; detach anything wrong there.
+  Acknowledge = looks fine as-is; Dismiss = not worth tracking. Neither
+  changes any data.</p>
   {% else %}{% for item in g['items'] %}
   <b>#{{ item.id }} · {{ item.payload.type or 'flag' }}</b> ⚠️
   <pre>{{ item.payload }}</pre>
   {% endfor %}{% endif %}
-  <p class="muted">Acknowledge = reviewed, looks fine as-is; Dismiss = not
-  worth tracking. Neither performs any structural change. Deciding this card
-  resolves all {{ g['items']|length }} flag{{ '' if g['items']|length == 1 else 's' }}.</p>
   <label class="muted"><input type="checkbox" name="items" value="{{ ids }}" form="bulk"> select</label>
   <form class="inline" method="post" action="{{ url_for('bulk_decide') }}">{{ csrf() }}
     <input type="hidden" name="items" value="{{ ids }}">
@@ -841,29 +879,66 @@ Solid boxes are accounts we've verified; a dashed box is the account being judge
     <button class="no" name="decision" value="reject">Dismiss</button></form>
 </div>
 {% endfor %}
+</section>
 
+<section id="unlikely">
+<h1>Unlikely artists <span class="muted">({{ gate_total }})</span>
+  <button type="button" class="linkish" onclick="selectSection('unlikely', true)">select all</button></h1>
+<p class="muted">Open-harvest accounts with no artist evidence (no art-keyword
+bio, no outbound platform links). Approve lists the account as an artist
+(permanently exempt from auto-demotion); Reject keeps it out.</p>
+{% if not gate_items %}<p class="muted">No pending gates.</p>{% endif %}
+<div class="gate-grid">
+{% for item in gate_items %}
+{% set acc = item.ctx.account %}
+<div class="card">
+  <div style="display:flex;align-items:center;gap:.6rem">
+    {% if acc and acc.avatar_url %}<img class="pfp" src="{{ img_src(acc.avatar_url) }}" loading="lazy">{% else %}<span class="pfp" style="display:inline-block"></span>{% endif %}
+    <span style="line-height:1.3">
+      <b>{{ m.acct_link(item.payload.platform, (acc.handle if acc else item.payload.handle), (acc.profile_url if acc else none), (acc.display_name if acc else none)) }}</b>
+      <span class="muted">on {{ item.payload.platform }}</span><br>
+      <span class="muted">{{ "{:,}".format((acc.followers_count if acc else none) or item.payload.followers or 0) }} followers
+        · via {{ (acc.discovered_via if acc else none) or item.payload.discovered_via }}</span>
+    </span>
+    <span class="agechip" style="margin-left:auto">#{{ item.id }} · {{ age_of(item.created_at) }} ago</span>
+  </div>
+  <div class="grow" style="margin:.5rem 0 0">{{ m.bio(item.ctx.bio) }}</div>
+  <div style="margin-top:.6rem">{{ decide_buttons(item, ok='List as artist', no='Not an artist') }}</div>
+</div>
+{% endfor %}
+</div>
+{% if gate_total > gate_items|length %}<p class="muted">…and {{ gate_total - gate_items|length }} more (decide some to see the rest).</p>{% endif %}
+</section>
+
+{% if attach_items %}
+<section id="attaches">
 <h1>Attach decisions <span class="muted">({{ attach_total }})</span></h1>
 {% for item in attach_items %}
 <div class="card">
-  <b>#{{ item.id }} · {{ item.ctx.reason or item.kind }}</b> <span class="muted">{{ item.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
+  <b>#{{ item.id }} · {{ item.ctx.reason or item.kind }}</b> <span class="agechip">{{ age_of(item.created_at) }} ago</span>
   {% if item.kind == 'one_directional_attach' %}
-    <p><a href="{{ url_for('artist', artist_id=item.ctx.artist_id) }}">{{ item.ctx.artist_slug }}</a>
+    <p style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap">
+    {% if item.ctx.target_avatar %}<img class="pfp sm" src="{{ img_src(item.ctx.target_avatar) }}" loading="lazy">{% endif %}
+    <span><a href="{{ url_for('artist', artist_id=item.ctx.artist_id) }}" target="_blank">{{ item.ctx.artist_slug }}</a>
     ({{ item.ctx.source_handle }}) claims
-    <b>{{ item.ctx.target_platform }}: {{ item.ctx.target_handle }}</b>
+    <b>{{ item.ctx.target_platform }}: {{ m.acct_link(item.ctx.target_platform, item.ctx.target_handle, item.ctx.target_url) }}</b>
     ({% if item.ctx.target_followers is not none %}{{ "{:,}".format(item.ctx.target_followers) }} followers{% else %}followers unknown — not yet hydrated{% endif %})
     via {{ item.ctx.evidence_type }}{% if item.ctx.matched_text %} · “{{ item.ctx.matched_text }}”{% endif %}
-    {% if item.ctx.evidence_url %} · <a href="{{ item.ctx.evidence_url }}" target="_blank">source</a>{% endif %}</p>
+    {% if item.ctx.evidence_url %} · <a href="{{ item.ctx.evidence_url }}" target="_blank">source</a>{% endif %}</span></p>
     <p class="muted">Approve = attach to this artist at strong confidence.</p>
-  {% elif item.kind == 'singleton_gate' %}
-    <p>Suspected non-artist from an open harvest: <b>{{ item.payload.platform }}: {{ item.payload.handle }}</b>
-    ({{ "{:,}".format(item.payload.followers or 0) }} followers, via {{ item.payload.discovered_via }})</p>
-    {{ m.bio(item.ctx.bio) }}
-    <p class="muted">Approve = list as an artist (permanently exempt from auto-demotion).</p>
   {% else %}<pre>{{ item.payload }}</pre>{% endif %}
-  {{ decide_buttons(item) }}
+  {{ decide_buttons(item, ok='Attach') }}
 </div>
 {% endfor %}
 {% if attach_total > attach_items|length %}<p class="muted">…and {{ attach_total - attach_items|length }} more attach decisions (decide some to see the rest).</p>{% endif %}
+</section>
+{% endif %}
+<script>
+function selectSection(id, on) {
+  document.querySelectorAll('#' + id + ' input[name=items]')
+    .forEach(function (c) { c.checked = on; });
+}
+</script>
 {% endblock %}""",
 }
 
@@ -942,6 +1017,17 @@ def account_label(platform, handle, display_name):
     return handle
 
 
+def age_of(dt):
+    """Compact relative age for queue triage: 45m / 6h / 3d / 5w."""
+    from datetime import datetime, timezone
+
+    secs = (datetime.now(timezone.utc) - dt).total_seconds()
+    for unit, div in (("m", 60), ("h", 3600), ("d", 86400)):
+        if secs < div * (60 if unit == "m" else 24 if unit == "h" else 7):
+            return f"{max(1, int(secs // div))}{unit}"
+    return f"{int(secs // 604800)}w"
+
+
 def img_src(url):
     """Route hotlink-protected avatar CDNs through the local /img proxy so they
     render in the browser; pass everything else through untouched."""
@@ -981,6 +1067,7 @@ app.jinja_env.globals["acc_url"] = account_url
 app.jinja_env.globals["qs_with"] = qs_with
 app.jinja_env.globals["img_src"] = img_src
 app.jinja_env.globals["acc_label"] = account_label
+app.jinja_env.globals["age_of"] = age_of
 
 # CSRF: binding to 127.0.0.1 does not stop a malicious page in the same
 # browser from POSTing here. Every mutating form carries a per-process token
@@ -1797,11 +1884,13 @@ def _enrich_all(conn, items):
     gates = [i for i in items if i["kind"] == "singleton_gate"]
 
     acc_ids = ({i["payload"]["source_account_id"] for i in attach}
-               | {i["payload"]["target_account_id"] for i in attach})
+               | {i["payload"]["target_account_id"] for i in attach}
+               | {i["payload"]["account_id"] for i in gates})
     # Live values — the payload snapshot goes stale (targets get hydrated
     # after the item was created).
     accounts = {r["id"]: r for r in q(conn, """
-        select a.id, a.handle::text as handle, a.followers_count, p.slug as platform
+        select a.id, a.handle::text as handle, a.display_name, a.followers_count,
+               a.avatar_url, a.profile_url, a.discovered_via, p.slug as platform
         from accounts a join platforms p on p.id = a.platform_id
         where a.id = any(%s)""", (list(acc_ids),))} if acc_ids else {}
     src_artists = {r["account_id"]: r for r in q(conn, """
@@ -1814,14 +1903,27 @@ def _enrich_all(conn, items):
         from identity_edges where id = any(%s)""",
         (list({i["payload"]["edge_id"] for i in attach}),))} if attach else {}
 
+    # Anomaly groups get the same artist chip (pfp + slug) as merge cards.
+    anomaly_artist_ids = {i["payload"]["artist_id"] for i in items
+                          if i["kind"] == "other"
+                          and (i["payload"] or {}).get("artist_id")}
     merge_ids = sorted({aid for i in merges
-                        for aid in json.loads(i["payload"]["artist_ids"])})
+                        for aid in json.loads(i["payload"]["artist_ids"])}
+                       | anomaly_artist_ids)
     merge_artist = {r["id"]: r for r in q(conn, """
         select ar.id, ar.public_slug,
                (select max(a.followers_count) from artist_accounts aa
                 join accounts a on a.id = aa.account_id
-                where aa.artist_id = ar.id and aa.removed_at is null) as followers
-        from artists ar where ar.id = any(%s)""", (merge_ids,))} if merges else {}
+                where aa.artist_id = ar.id and aa.removed_at is null) as followers,
+               (select a.avatar_url from artist_accounts aa
+                join accounts a on a.id = aa.account_id
+                join platforms p on p.id = a.platform_id
+                where aa.artist_id = ar.id and aa.removed_at is null
+                  and a.avatar_url is not null
+                  and a.status in ('active', 'unknown')
+                order by p.display_rank, a.followers_count desc nulls last
+                limit 1) as avatar_url
+        from artists ar where ar.id = any(%s)""", (merge_ids,))} if merge_ids else {}
 
     bios = {r["account_id"]: r["bio_text"] for r in q(conn, """
         select distinct on (account_id) account_id, bio_text
@@ -1842,6 +1944,8 @@ def _enrich_all(conn, items):
                        "source_handle": src_acc["handle"] if src_acc else None,
                        "target_handle": tgt["handle"],
                        "target_platform": tgt["platform"],
+                       "target_url": tgt["profile_url"],
+                       "target_avatar": tgt["avatar_url"],
                        "target_followers": tgt["followers_count"],
                        "evidence_type": edge["evidence_type"] if edge else None,
                        "matched_text": edge["matched_text"] if edge else None,
@@ -1852,10 +1956,20 @@ def _enrich_all(conn, items):
             artists = [merge_artist[a] for a in sorted(ids) if a in merge_artist]
             # WHAT connects them: every present edge whose endpoints sit in
             # different artists of this pair (pair-scoped, stays per-item).
+            # `mutual` marks a direct reverse edge between the same two
+            # accounts — a two-way claim is far stronger merge evidence than
+            # a lone one-directional link, so the UI highlights the split.
             evidence = q(conn, """
                 select e.evidence_type, e.claim, e.evidence_url, e.matched_text,
                        sa.handle::text as src_handle, sp.slug as src_platform,
-                       ta.handle::text as tgt_handle, tp.slug as tgt_platform
+                       sa.profile_url as src_url, sa.display_name as src_name,
+                       ta.handle::text as tgt_handle, tp.slug as tgt_platform,
+                       ta.profile_url as tgt_url, ta.display_name as tgt_name,
+                       exists (select 1 from identity_edges r
+                               where r.status = 'present'
+                                 and r.source_account_id = e.target_account_id
+                                 and r.target_account_id = e.source_account_id
+                       ) as mutual
                 from identity_edges e
                 join artist_accounts saa on saa.account_id = e.source_account_id
                      and saa.removed_at is null and saa.artist_id = any(%(ids)s)
@@ -1866,11 +1980,19 @@ def _enrich_all(conn, items):
                 join accounts ta on ta.id = e.target_account_id
                 join platforms tp on tp.id = ta.platform_id
                 where e.status = 'present' and saa.artist_id <> taa.artist_id
+                order by (exists (select 1 from identity_edges r
+                                  where r.status = 'present'
+                                    and r.source_account_id = e.target_account_id
+                                    and r.target_account_id = e.source_account_id)) desc
                 limit 8""", {"ids": ids})
             ctx = {"artists": artists, "evidence": evidence,
+                   "any_mutual": any(ev["mutual"] for ev in evidence),
                    "keeper_slug": artists[0]["public_slug"] if artists else "?"}
         elif item["kind"] == "singleton_gate":
-            ctx = {"bio": bios.get(payload["account_id"])}
+            ctx = {"bio": bios.get(payload["account_id"]),
+                   "account": accounts.get(payload["account_id"])}
+        elif item["kind"] == "other" and (payload or {}).get("artist_id"):
+            ctx = {"artist": merge_artist.get(payload["artist_id"])}
         item["ctx"] = ctx
     return items
 
@@ -1900,13 +2022,21 @@ def review():
             if aid not in by_artist:
                 by_artist[aid] = {"artist_id": aid,
                                   "public_slug": payload.get("public_slug"),
+                                  "artist": (item["ctx"] or {}).get("artist"),
                                   "items": []}
                 anomaly_groups.append(by_artist[aid])
             by_artist[aid]["items"].append(item)
-        attach_items = [i for i in items if i["kind"] not in ("cluster_merge", "other")]
+        # "Unlikely artists": open-harvest accounts that failed the evidence
+        # gate — their own section, distinct from the (legacy, near-drained)
+        # one-directional attach decisions.
+        gate_items = [i for i in items if i["kind"] == "singleton_gate"]
+        attach_items = [i for i in items
+                        if i["kind"] not in ("cluster_merge", "other", "singleton_gate")]
         return render_template("review.html", merge_items=merge_items,
                                anomaly_groups=anomaly_groups,
                                anomaly_count=len(anomaly_items),
+                               gate_items=gate_items[:80],
+                               gate_total=len(gate_items),
                                attach_items=attach_items[:60],
                                attach_total=len(attach_items),
                                pending=len(items), demoted_count=demoted_count(conn))

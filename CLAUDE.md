@@ -12,7 +12,39 @@ rationale: `docs/schema.md` and `docs/pipeline.md`. Untapped-source scouting
 (vgen/itaku/misskey/tumblr next; cara+mihuashi+instagram no-go, with reasons):
 `docs/source-scouting.md` (probed live 2026-07-22).
 
-## Current state (2026-07-23 — x-tag extension shipped, 2.4k-artist bulk import)
+## Current state (2026-07-23 eve — junk-link cleanup + review-UI overhaul)
+
+**Junk link artifacts purged (migration 0034 + extract.py guards)**: malformed
+URL text was minting accounts whose "handle" was a scheme fragment
+(instagram.com/https → handle "https"), a reserved page word (tumblr.com/
+profile), a doubled platform domain (instagram.com as an instagram handle),
+or an ellipsis-truncated handle (dot-permitting charsets swallow "artto…"
+dots that the after-match ellipsis check can't see). `find_platform_links`
+now rejects all four shapes (`_RESERVED_HANDLES`, trailing-dot, exact match
+against `_NON_WEBSITE_DOMAINS`; bluesky exempt from the domain rule — its
+handles ARE domains, and only EXACT domain matches are junk: julia_dreams.co
+is a real instagram handle, yun..art a real tiktok). 43 junk accounts hidden,
+~200 edges retracted (migration handles hub-crawl-evidenced edges reextract
+can't reach), + 6 more edges/4 memberships via a reextract pass.
+
+**Anomaly hub thresholds raised** (user directive): ANOMALY_HUB_FANOUT 12→25,
+ANOMALY_HUB_ATTACHED 10→20 — the old bounds flagged legitimately link-rich
+personal hubs. 111 pending anomaly items that only qualified under the old
+bounds auto-resolved (`decided_by='pipeline:threshold_raise'`). Queue now
+197 pending (20 merges / 103 anomaly flags / 74 singleton gates).
+
+**Review UI overhauled**: three anchored sections (Merges / Anomalies /
+Unlikely artists) with a sticky bar carrying bulk actions + per-section jump
+links and per-section select-all; merge cards show BOTH artists as pfp chips
+(top-display_rank avatar, same rule as directory naming) and every evidence
+line gets a ⇄ mutual / → one-way chip (reverse-edge exists() per evidence
+edge — pending merges are ~always one-way since reciprocal pairs auto-merge);
+evidence handles + attach targets + gate accounts are clickable profile
+links (target=_blank); singleton gates render as a card grid with pfp, live
+follower count, bio, and List-as-artist / Not-an-artist buttons; queue items
+show relative age.
+
+## Previous state (2026-07-23 — x-tag extension shipped, 2.4k-artist bulk import)
 
 **Directory 8,607 artists** (was 5,655 — the user's X following list added
 ~2,900 net via the new x-tag extension + its frontier rings in one day).

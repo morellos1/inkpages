@@ -30,8 +30,12 @@ MAX_SAME_PLATFORM = 3
 # Anomaly flags for manual review — shapes that suggest a credits/projects
 # page rather than personal links (e.g. a VTuber illustrator's lit.link that
 # lists every client they've drawn for).
-ANOMALY_HUB_FANOUT = 12           # one member hub linking this many accounts
-ANOMALY_HUB_ATTACHED = 10         # members that exist only because a hub listed
+# Raised 12/10 → 25/20 (2026-07-23, user directive): at directory scale the
+# old bounds flagged plenty of legitimately link-rich personal hubs and the
+# queue outgrew hand review. Migration 0034 retro-resolved pending items that
+# only qualified under the old bounds.
+ANOMALY_HUB_FANOUT = 25           # one member hub linking this many accounts
+ANOMALY_HUB_ATTACHED = 20         # members that exist only because a hub listed
                                   # them (5-7 is a normal personal linktree)
 ANOMALY_RELATED_CONNECTIONS = 15  # sheer connection volume
 ANOMALY_CROSS_ARTIST_REFS = 3     # a MEMBER account with edges touching this

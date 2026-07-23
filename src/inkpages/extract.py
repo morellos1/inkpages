@@ -382,6 +382,14 @@ _SUBDOMAIN_JUNK = {"www", "blog", "shop", "app", "apps", "help", "about", "suppo
                    "at", "media", "assets", "static", "embed", "api", "cdn",
                    "px", "mail", "link", "redirect", "status", "docs"}
 
+# Scheme fragments and generic page words that path regexes capture as a
+# "handle" from glued or malformed URLs — "instagram.com/https://…" yields
+# handle "https", "tumblr.com/profile" yields "profile". Never an account.
+_RESERVED_HANDLES = _SUBDOMAIN_JUNK | {
+    "https", "http", "profile", "share", "home", "index", "search",
+    "login", "signup", "account", "accounts", "explore", "watch",
+    "null", "undefined"}
+
 # A pure long-hex "handle" is a content hash from a CDN URL, not an account.
 _HEX_JUNK = re.compile(r"[0-9a-f]{16,}", re.IGNORECASE)
 
@@ -468,8 +476,20 @@ def find_platform_links(text: str | None) -> list[PlatformLink]:
             groups = m.groupdict()
             handle = groups.get("handle")
             native_id = groups.get("native_id")
-            if handle and (len(handle) < 2 or handle.lower() in _SUBDOMAIN_JUNK
+            if handle and (len(handle) < 2 or handle.lower() in _RESERVED_HANDLES
                            or _HEX_JUNK.fullmatch(handle)):
+                continue
+            # Dot-permitting charsets (instagram, youtube, facebook…) swallow
+            # a truncation ellipsis INTO the handle ("izunee_artto..."), which
+            # the after-match ellipsis check above can't see — truncation
+            # always leaves a trailing dot. Mid-handle dots stay (yun..art is
+            # a real tiktok). And a handle that IS a known platform domain
+            # ("instagram.com/youtube.com") is doubled/glued URL text, not a
+            # profile path — but only exact domain matches: julia_dreams.co
+            # is a real instagram handle; bluesky handles ARE domains.
+            if handle and (handle.endswith(".")
+                           or (platform != "bluesky"
+                               and handle.lower() in _NON_WEBSITE_DOMAINS)):
                 continue
             url = m.group(0)
             if not url.startswith("http"):
