@@ -91,7 +91,9 @@ def main() -> None:
 
     if not args.skip_hydrate:
         hydrate_free_platforms()
-    sys.argv = ["crawl_links"]
+    # 600/run (not the CLI's 100 default): a bulk ingest can mint 1,000+ hub
+    # pages at once, and reciprocal merges are blocked until they're crawled.
+    sys.argv = ["crawl_links", "--max-hubs", "600"]
     crawl_links.main()
     sys.argv = ["check_links", "--limit", "200"]
     check_links.main()
