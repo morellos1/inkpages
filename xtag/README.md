@@ -20,8 +20,11 @@ optionally a pipeline pass so the new artists actually list.
 - **Badges** next to names everywhere: green `INK` = in the directory,
   amber `INK…` = tagged/awaiting hydration, gray `✕` = removed.
 - **Hover card button**: hover any name → tag/untag without visiting the
-  profile.
+  profile (sits immediately left of the Follow button).
 - **Profile header button** next to Follow/More.
+- **On-post button** in every tweet's action row (next to like/share) — no
+  hover needed. Reposts ink the ORIGINAL poster (the reposter only appears
+  in X's socialContext line, never as the article's User-Name).
 - **Follower/following lists**: checkbox per row + a bottom bar with
   Select all / Add to inkpages / Remove. **Select all auto-scrolls the whole
   list** (X only mounts ~a window of rows, so the scan walks to the end

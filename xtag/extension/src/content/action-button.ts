@@ -53,10 +53,10 @@ function faceFor(info: XtagInfo): ButtonFace {
   }
 }
 
-export function createActionButton(handle: string): HTMLButtonElement {
+export function createActionButton(handle: string, compact = false): HTMLButtonElement {
   const button = document.createElement("button");
   button.type = "button";
-  button.className = BTN_CLASS;
+  button.className = BTN_CLASS + (compact ? " xtag-btn-compact" : "");
   button.dataset.xtagHandle = handle;
   button.textContent = "…";
 
@@ -67,7 +67,7 @@ export function createActionButton(handle: string): HTMLButtonElement {
     const face = faceFor(info);
     button.textContent = face.label;
     button.title = face.title;
-    button.className = `${BTN_CLASS} ${face.className}`;
+    button.className = `${BTN_CLASS} ${face.className}${compact ? " xtag-btn-compact" : ""}`;
   };
 
   const sync = (): void => {

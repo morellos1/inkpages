@@ -36,12 +36,20 @@ function decorate(card: HTMLElement): void {
     existing.remove(); // card got recycled for another user
   }
   const row = document.createElement("div");
-  row.className = ROW_CLASS;
   row.dataset.xtagHandle = handle;
   row.appendChild(createActionButton(handle));
-  // The card's inner scroll container is its first child div; appending to
-  // the card itself keeps us clear of X's own layout logic.
-  card.appendChild(row);
+  // Sit immediately LEFT of the Follow/Unfollow button in the card header.
+  const followButton = card.querySelector<HTMLElement>(
+    '[data-testid$="-follow"], [data-testid$="-unfollow"], [aria-label^="Follow "], [aria-label^="Following "]',
+  );
+  if (followButton) {
+    row.className = `${ROW_CLASS} xtag-hovercard-inline`;
+    followButton.insertAdjacentElement("beforebegin", row);
+  } else {
+    // No follow button (own profile, blocked) — fall back to a bottom row.
+    row.className = ROW_CLASS;
+    card.appendChild(row);
+  }
 }
 
 export function initHoverCard(): void {

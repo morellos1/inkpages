@@ -1,7 +1,7 @@
 // "Already tagged" indication while scrolling: a small pill next to names
 // everywhere (timeline, user cells, profile headers). Placement strategy
 // adapted from better-x's ai-name-badges (same author).
-import { findHandleInContainer, type XtagInfo, type XtagState } from "../core/x";
+import { findHandleInContainer, parseHandleFromHref, type XtagInfo, type XtagState } from "../core/x";
 import { cachedState, getState, XTAG_UPDATED_EVENT } from "./runtime";
 import { subscribeToMutations } from "./observer";
 
@@ -65,7 +65,60 @@ function findNameAnchor(container: HTMLElement): HTMLElement | null {
   return null;
 }
 
-function applyBadge(container: HTMLElement, info: XtagInfo): void {
+// --- truncation-proof placement (ported from better-x ai-name-badges) -----
+// A badge appended inside the truncating name/handle span gets clipped on
+// long names. The display-name row is a flex row: name text (shrinks) +
+// verified icon (fixed). Inserting the badge as the SECOND flex item of the
+// profile link's structured host keeps it visible — the NAME ellipsizes
+// instead of the badge.
+function findProfileLinkForHandle(container: HTMLElement, handle: string): HTMLAnchorElement | null {
+  let textless: HTMLAnchorElement | null = null;
+  const anchors = container.querySelectorAll<HTMLAnchorElement>("a[href]");
+  for (const anchor of Array.from(anchors)) {
+    if (parseHandleFromHref(anchor.getAttribute("href")) !== handle) continue;
+    // Prefer the NAME link (has text) over the avatar link (image only) —
+    // the structured badge host lives inside the name link's row.
+    if (anchor.textContent?.trim()) return anchor;
+    textless = textless ?? anchor;
+  }
+  return textless;
+}
+
+function readStructuredBadgeHost(profileLink: HTMLAnchorElement | null): HTMLElement | null {
+  if (!profileLink) return null;
+  const directDiv = profileLink.querySelector(":scope > div");
+  if (!(directDiv instanceof HTMLElement)) return null;
+  const childDivs = Array.from(directDiv.children).filter(
+    (child): child is HTMLElement => child instanceof HTMLElement,
+  );
+  return childDivs.length >= 2 ? childDivs[1] : null;
+}
+
+function placeBadgeAsSecondElement(host: HTMLElement, badge: HTMLElement): void {
+  const secondSlot = host.children.item(1);
+  if (badge.parentElement === host && badge.previousElementSibling === host.children.item(0)) {
+    return;
+  }
+  badge.remove();
+  if (secondSlot) {
+    host.insertBefore(badge, secondSlot);
+  } else {
+    host.appendChild(badge);
+  }
+}
+
+function findVerifiedAnchor(root: HTMLElement): HTMLElement | null {
+  const icon = root.querySelector(
+    '[data-testid="icon-verified"], [aria-label*="Verified"], [aria-label*="verified"]',
+  );
+  if (icon instanceof HTMLElement) {
+    const anchor = icon.closest("span, div, a");
+    if (anchor instanceof HTMLElement) return anchor;
+  }
+  return null;
+}
+
+function applyBadge(container: HTMLElement, handle: string, info: XtagInfo): void {
   const existing = container.querySelector<HTMLElement>(`:scope .${BADGE_CLASS}`);
   const text = BADGE_TEXT[info.state];
   if (!text) {
@@ -74,8 +127,13 @@ function applyBadge(container: HTMLElement, info: XtagInfo): void {
   }
   if (existing && existing.dataset.xtagState === info.state) return;
   existing?.remove();
-  const anchor = findNameAnchor(container);
   const badge = makeBadge(info.state, info);
+  const structuredHost = readStructuredBadgeHost(findProfileLinkForHandle(container, handle));
+  if (structuredHost) {
+    placeBadgeAsSecondElement(structuredHost, badge);
+    return;
+  }
+  const anchor = findVerifiedAnchor(container) ?? findNameAnchor(container);
   if (anchor) {
     anchor.insertAdjacentElement("afterend", badge);
   } else {
@@ -92,7 +150,7 @@ async function processRoot(root: ParentNode): Promise<void> {
     if (!container.isConnected) return;
     // Re-check identity: virtualized rows get recycled while we await.
     if (findHandleInContainer(container) !== handle) return;
-    applyBadge(container, info);
+    applyBadge(container, handle, info);
   }));
 }
 
