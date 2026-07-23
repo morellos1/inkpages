@@ -68,15 +68,26 @@ the previous-state section below: potofu og-tag capture lives in
 crawl_links (PROFILE_OG_HUBS), xfolio is a documented NO-GO (sitewide
 recaptcha wall).
 
+**Misskey cross-hydration DONE (2026-07-23, `discover_misskey.py`)**:
+717/723 held accounts hydrated free via per-instance `users/show` (1
+deleted, 5 transient failures for a later `--hydrate-known` re-run) — 606
+named, 717 avatars, 714 with roles in platform_stats (misskey.io's
+Skeb-creator badge included), 1,518 edges evidenced by misskey snapshots.
+Traps encoded in the worker: remote-user pages (`/@user@host`) must pass
+host or a same-named LOCAL user hydrates instead; held rows update
+directly (get_or_create's claim-by-handle could cross instances);
+native_id = `instance:id`. Snapshots stay reextractable; fields[] →
+profile_field (pixiv-social-block rules). Post-flush frontier rings
+converged 917→189→227 handles (~289→67→13 artists — collapse as
+measured); final $2.27 ring may be in flight.
+
 **Next up (in priority order):**
-1. **Misskey cross-hydration** (~710 unhydrated misskey accounts, open
-   per-instance API, free edges from profile fields[]).
-2. **Work the review queue** (301 pending) + Demoted page.
-3. **Tumblr enrichment** — still blocked on user registering the free API
+1. **Work the review queue** (~350 pending) + Demoted page.
+2. **Tumblr enrichment** — still blocked on user registering the free API
    key (tumblr.com/oauth/apps); 1,568 held accounts.
-4. **Cara exploration** (re-probe for an official API; never circumvent
+3. **Cara exploration** (re-probe for an official API; never circumvent
    bot protection).
-5. Recurring skims: DA popular rotation, vgen tier-1/2 re-walks, pixiv tag
+4. Recurring skims: DA popular rotation, vgen tier-1/2 re-walks, pixiv tag
    rounds, bluesky expansion. X spend: standing rule = auto-run hydration
    backlog rings < $10; deep rings collapse (frontier economics) so stop
    when yield does.
